@@ -19,8 +19,9 @@ class WriteMixin:
 
         if self.w_index is None:
             raise ValueError(
-                'Set w_index or index to specify which column you want to write down the value.'
-                'Set csv_output = False then this column does not write down any values.')
+                'Set w_index or index to specify which column you want to '
+                'write down the value.Set csv_output = False then this column'
+                ' does not write down any values.')
 
     def get_value_for_write(self, instance, field_name: str, **kwargs) -> Any:
         """
@@ -137,13 +138,15 @@ class ForeignColumn(Column):
                 value = getattr(value, field)
             except AttributeError:
                 raise NoSuchFieldError(
-                    f'"{value.__class__.__name__}" does not have field "{field}"')
+                    f'`{value.__class__.__name__}` does not have a'
+                    f'field `{field}`')
         return value
 
     def _set_field_decorator(method):
         def set_field(self, *args, **kwargs):
             value = method(self, *args, **kwargs)
-            self._main.set_field(kwargs.get('fieldname').split('__')[-1], value)
+            self._main.set_field(
+                kwargs.get('fieldname').split('__')[-1], value)
             return value
         return set_field
 
@@ -182,7 +185,8 @@ class ForeignColumns:
     def set_field(self, field, value):
         if field not in self.model_fields:
             raise NoSuchFieldError(
-                f'"{self.model.__class__.__name__}" does not have field "{field}"')
+                f'"{self.model.__class__.__name__}" does not have field a '
+                f'"{field}"')
 
         self.field_kwargs.update({field: value})
 

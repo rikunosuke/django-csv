@@ -150,7 +150,8 @@ class ModelCsvForRead(ModelCsvBase):
             col.validate_for_read()
         index = [col.r_index for col in self._r_columns.values()]
         if len(index) != len(set(index)):
-            raise ValueError('"index" must be unique. Change "index" or "r_index"')
+            raise ValueError(
+                '`index` must be unique. Change `index` or `r_index`')
 
     @cached_property
     def table(self) -> List[str]:
@@ -276,7 +277,8 @@ class ModelCsvForWrite(ModelCsvBase):
             col.validate_for_write()
         index = [col.w_index for col in self._w_columns.values()]
         if len(index) != len(set(index)):
-            raise ValueError('"index" must be unique. Change "index" or "w_index"')
+            raise ValueError(
+                '`index` must be unique. Change `index` or `w_index`')
 
 
 class NotAllowedReadType(Exception):
@@ -292,6 +294,7 @@ class ModelCsvMetaClass(type):
     Column を {クラス変数名: Column インスタンス}
     の辞書型で _columns に格納するメタクラス
     """
+
     def __new__(mcs, name, bases, attrs):
         columns = {}
 
@@ -301,9 +304,12 @@ class ModelCsvMetaClass(type):
         for base in [base for base in bases if hasattr(base, '_columns')]:
             columns.update({key: val for key, val in base._columns.items()})
         attrs['_columns'] = columns
-        attrs['_w_columns'] = {k: v for k, v in columns.items() if v.csv_output}
-        attrs['_r_columns'] = {k: v for k, v in columns.items() if v.model_field}
-        attrs['_relations'] = set([v._main for v in columns.values() if v.is_relation])
+        attrs['_w_columns'] = {k: v for k, v in columns.items() if
+                               v.csv_output}
+        attrs['_r_columns'] = {k: v for k, v in columns.items() if
+                               v.model_field}
+        attrs['_relations'] = set(
+            [v._main for v in columns.values() if v.is_relation])
 
         return super().__new__(mcs, name, bases, attrs)
 
