@@ -4,10 +4,10 @@ from functools import cached_property
 from typing import Generator, Any, List, Dict, Optional
 
 from . import readers, writers
-from .columns import Column
+from .columns import BaseColumn
 
 
-class ModelCsvBase:
+class CsvBase:
     model = None
     _static = {}
 
@@ -23,7 +23,7 @@ class ModelCsvBase:
         self._static.update({key: value})
 
 
-class ModelCsvForRead(ModelCsvBase):
+class CsvForRead(CsvBase):
     """
     読み込み用のクラス
     .for_read() で作成する
@@ -66,32 +66,6 @@ class ModelCsvForRead(ModelCsvBase):
         start = 1 if self.has_header else 0
         return self.table[start:]
 
-    def get_instances(self) -> Generator:
-        """
-        CSV から作成した Model のインスタンスを返すジェネレーター
-        """
-        csv_data = self.get_csv_data()
-        max_r_index = max([col.r_index for col in self._columns.values()])
-        if len(csv_data[1]) < max_r_index:
-            raise ModelCsvForRead.RIndexOverColumnNumberError(
-                f'column number: {len(csv_data[1])} < r_index: {max_r_index}')
-        for row in csv_data:
-            yield self.model(**self._get_model_values(row))
-
-    def bulk_create(self, batch_size=100) -> None:
-        """
-        CSV から作成した Model を DB に保存する
-        batch_size: 一度にジェネレーターから作成するインスタンスの最大値
-        """
-        models = []
-        instances = list(self.get_instances())
-        length = len(instances)
-        for i, instance in enumerate(instances, 1):
-            models.append(instance)
-            if len(models) % batch_size == 0 or i == length:
-                self.model.objects.bulk_create(models)
-                models = []
-
     def _add_dynamic_fields(self, values: dict) -> dict:
         """
         動的なフィールドの値を作成する
@@ -114,6 +88,62 @@ class ModelCsvForRead(ModelCsvBase):
             )
         return updated
 
+    def get_values(self, row: List[str]) -> Dict[str, Any]:
+        """
+        CSV から値を取り出して {field 名: 値} の辞書型を渡す
+        Column インスタンスが model_field=False の場合は含めない
+        """
+        values = {}
+        for name, column in self._r_columns.items():
+            values.update({
+                name: column.get_value_for_read(row=row, fieldname=name)})
+
+        # Column にない値を動的に作成
+        return self._add_dynamic_fields(values)
+
+    @cached_property
+    def table(self) -> List[str]:
+        """
+        CSV の値を2次元のリストで返す
+        """
+        return self.reader_class.convert_2d_list(
+            file=self.file, encoding=self.encoding,
+            table_start_from=self.table_start_from, reader_kwargs=self.rkws)
+
+
+class ModelCsvForRead(CsvForRead):
+    def get_values(self, row: List[str]) -> Dict[str, Any]:
+        values = super().get_values(row)
+        values = self._make_relations(values)
+        values = self._remove_extra_values(values)
+        return values
+
+    def get_instances(self) -> Generator:
+        """
+        CSV から作成した Model のインスタンスを返すジェネレーター
+        """
+        csv_data = self.get_csv_data()
+        max_r_index = max([col.r_index for col in self._columns.values()])
+        if len(csv_data[1]) < max_r_index:
+            raise CsvForRead.RIndexOverColumnNumberError(
+                f'column number: {len(csv_data[1])} < r_index: {max_r_index}')
+        for row in csv_data:
+            yield self.model(**self.get_values(row))
+
+    def bulk_create(self, batch_size=100) -> None:
+        """
+        CSV から作成した Model を DB に保存する
+        batch_size: 一度にジェネレーターから作成するインスタンスの最大値
+        """
+        models = []
+        instances = list(self.get_instances())
+        length = len(instances)
+        for i, instance in enumerate(instances, 1):
+            models.append(instance)
+            if len(models) % batch_size == 0 or i == length:
+                self.model.objects.bulk_create(models)
+                models = []
+
     def _remove_extra_values(self, values: dict) -> dict:
         """
         Model にないフィールドの値を取り除く
@@ -127,22 +157,6 @@ class ModelCsvForRead(ModelCsvBase):
     def _make_relations(self, values: dict) -> dict:
         for cols in self._relations:
             values.update({cols.fieldname: cols.call_relations()})
-        return values
-
-    def _get_model_values(self, row: List[str]) -> Dict[str, Any]:
-        """
-        CSV から値を取り出して {field 名: 値} の辞書型を渡す
-        Column インスタンスが model_field=False の場合は含めない
-        """
-        values = {}
-        for name, column in self._r_columns.items():
-            values.update({
-                name: column.get_value_for_read(row=row, fieldname=name)})
-
-        # Column にない値を動的に作成
-        values = self._add_dynamic_fields(values)
-        values = self._make_relations(values)
-        values = self._remove_extra_values(values)
         return values
 
     def _run_column_validation(self):
@@ -170,10 +184,10 @@ class ModelCsvForRead(ModelCsvBase):
         return [field.name for field in self.model._meta.get_fields()]
 
 
-class ModelCsvForWrite(ModelCsvBase):
+class CsvForWrite(CsvBase):
     """
     書き込み用のクラス
-    .for_wtite() で作成する
+    .for_write() で作成する
     列の値に編集を加える場合は
     column_*列名* のメソッドを定義する
     blank_column: w_index の値が連続していない場合、True で空欄の列を挿入する
@@ -281,15 +295,7 @@ class ModelCsvForWrite(ModelCsvBase):
                 '`index` must be unique. Change `index` or `w_index`')
 
 
-class NotAllowedReadType(Exception):
-    pass
-
-
-class NotAllowedWriteType(Exception):
-    pass
-
-
-class ModelCsvMetaClass(type):
+class CsvMetaClass(type):
     """
     Column を {クラス変数名: Column インスタンス}
     の辞書型で _columns に格納するメタクラス
@@ -299,7 +305,7 @@ class ModelCsvMetaClass(type):
         columns = {}
 
         for attr_name, attr in attrs.items():
-            if isinstance(attr, Column):
+            if isinstance(attr, BaseColumn):
                 columns.update({attr_name: attr})
         for base in [base for base in bases if hasattr(base, '_columns')]:
             columns.update({key: val for key, val in base._columns.items()})
@@ -314,9 +320,18 @@ class ModelCsvMetaClass(type):
         return super().__new__(mcs, name, bases, attrs)
 
 
-class ModelCsv(metaclass=ModelCsvMetaClass):
+class BaseCsvClass(metaclass=CsvMetaClass):
     read_type = True
     write_type = True
+
+    read_class = None
+    write_class = None
+
+    class NotAllowedReadType(Exception):
+        pass
+
+    class NotAllowedWriteType(Exception):
+        pass
 
     def __init__(self, *args, **kwargs):
         self._run_column_validation()
@@ -332,9 +347,9 @@ class ModelCsv(metaclass=ModelCsvMetaClass):
         """
 
         if not cls.read_type:
-            raise NotAllowedReadType('Not Allowed read type.')
+            raise cls.NotAllowedReadType('Not Allowed read type.')
 
-        class TempModelCSVForRead(cls, ModelCsvForRead):
+        class TempModelCSVForRead(cls, cls.read_class):
             pass
 
         return TempModelCSVForRead(
@@ -348,9 +363,19 @@ class ModelCsv(metaclass=ModelCsvMetaClass):
         CSV 書き込みようのインスタンスを返す
         """
         if not cls.write_type:
-            raise NotAllowedWriteType('Not Allowed write type')
+            raise cls.NotAllowedWriteType('Not Allowed write type')
 
-        class TempModelCSVForWrite(cls, ModelCsvForWrite):
+        class TempModelCSVForWrite(cls, cls.write_class):
             pass
 
         return TempModelCSVForWrite(queryset=queryset)
+
+
+class CsvClass(BaseCsvClass):
+    read_class = CsvForRead
+    write_class = CsvForWrite
+
+
+class ModelCsv(BaseCsvClass):
+    read_class = ModelCsvForRead
+    write_class = CsvForWrite

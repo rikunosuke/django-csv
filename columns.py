@@ -47,21 +47,8 @@ class ReadMixin:
         """
         return row[self.r_index]
 
-    @property
-    def r_index(self):
-        pass
 
-    @r_index.getter
-    def r_index(self):
-        r_index = self._r_index if self._r_index is not None \
-            else self.inspected_r_index
-
-        if r_index is None:
-            raise ValueError('No r_index')
-        return r_index
-
-
-class Column(ReadMixin, WriteMixin):
+class BaseColumn(ReadMixin, WriteMixin):
     is_static = False
     is_relation = False
 
@@ -78,22 +65,20 @@ class Column(ReadMixin, WriteMixin):
         """
         self.header = header
         self.w_index = index if w_index is None else w_index
-        self._r_index = index if r_index is None else r_index
+        self.r_index = index if r_index is None else r_index
 
         self.csv_output = csv_output
         self.model_field = model_field
 
-        self.inspected_r_index = None
 
-
-class FieldColumn(Column):
+class FieldColumn(BaseColumn):
     """
     CSV とモデルを動的に関連付ける
     """
     pass
 
 
-class StaticColumn(Column):
+class StaticColumn(BaseColumn):
     """
     CSV とモデルを静的に関連づける
     CSV に依らない静的な値をモデルに渡したり、
@@ -116,7 +101,7 @@ class StaticColumn(Column):
         return self.static_value
 
 
-class ForeignColumn(Column):
+class ForeignColumn(BaseColumn):
     """
     ForeignKey 先のモデルとCSVデータを関連づける
     """
