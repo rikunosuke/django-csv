@@ -12,33 +12,35 @@ class NoSuchFieldError(Exception):
     pass
 
 
+class ColumnValidationError(Exception):
+    pass
+
+
 class WriteMixin:
     def validate_for_write(self) -> None:
         if not self.csv_output:
             return
 
         if self.w_index is None:
-            raise ValueError(
-                'Set w_index or index to specify which column you want to '
-                'write down the value.Set csv_output = False then this column'
-                ' does not write down any values.')
+            raise ColumnValidationError(
+                'Set `w_index` or `index` to specify the target column. '
+                '`index` starts from 0. Set `csv_output` = False then '
+                'CsvColumn does not write down any values.')
 
-    def get_value_for_write(self, instance, field_name: str, **kwargs) -> Any:
-        """
-        CSV に値を書き込む際に呼び出される
-        instance: models.Model のインスタンス
-        field_name: models.Model のフィールド名
-        """
-        return getattr(instance, field_name, '')
+    def get_value_for_write(self, dictionary: dict, key: str, **kwargs):
+        return dictionary.get(key, '')
 
 
 class ReadMixin:
     def validate_for_read(self) -> None:
-        if self.is_static:
+        if self.is_static or not self.model_field:
             return
 
         if self.r_index is None:
-            raise ValueError('r_index または index を指定してください')
+            raise ColumnValidationError(
+                'Set `r_index` or `index` to specify the target column. '
+                '`index` starts from 0. Set `model_field` = False then '
+                'CsvColumn does not read any values.')
 
     def get_value_for_read(self, row: List[str], **kwargs):
         """
@@ -71,11 +73,21 @@ class BaseColumn(ReadMixin, WriteMixin):
         self.model_field = model_field
 
 
+class Column(BaseColumn):
+    pass
+
+
 class FieldColumn(BaseColumn):
     """
     CSV とモデルを動的に関連付ける
     """
-    pass
+    def get_value_for_write(self, instance, field_name: str, **kwargs) -> Any:
+        """
+        CSV に値を書き込む際に呼び出される
+        instance: instance of Django Model
+        field_name: field name of Django Model
+        """
+        return getattr(instance, field_name, '')
 
 
 class StaticColumn(BaseColumn):
@@ -149,9 +161,15 @@ class ForeignColumns:
         self.model = model
         self.columns = []
         self.fieldname = fieldname
-        self.callback = callback
-
         self.field_kwargs = {}
+
+        class NoCallbackError(Exception):
+            pass
+
+        if not hasattr(self, callback):
+            raise NoCallbackError(f'{callback} method is not defined.')
+
+        self.callback = callback
 
     def call_relations(self) -> Tuple[str, Any]:
         return getattr(self, self.callback)()
@@ -170,8 +188,8 @@ class ForeignColumns:
     def set_field(self, field, value):
         if field not in self.model_fields:
             raise NoSuchFieldError(
-                f'"{self.model.__class__.__name__}" does not have field a '
-                f'"{field}"')
+                f'`{self.model.__class__.__name__}` does not have a field '
+                f'`{field}`')
 
         self.field_kwargs.update({field: value})
 
