@@ -18,27 +18,35 @@ class Writer:
         return res
 
 
-class CSVWriter(Writer):
-    delimiter = ','
-    expansion = '.csv'
-
+class CSVMixin:
     @classmethod
-    def make_response(cls, filename, table: list, **kwargs):
-        sio = io.StringIO()
-        w = csv.writer(sio, delimiter=cls.delimiter)
-        w.writerows(table)
-        res = cls._response(
-            filename=f'{filename}{cls.expansion}', content_type='text/tsv')
-        res.write(sio.getvalue().encode('cp932', errors='ignore'))
+    def make_response(cls, filename, table: list, encoding='utf-8', **kwargs):
+        with io.StringIO() as sio:
+            w = csv.writer(sio, delimiter=cls.delimiter)
+            w.writerows(table)
+
+            res = cls._response(
+                filename=f'{filename}{cls.expansion}',
+                content_type=cls.content_type
+            )
+            res.write(sio.getvalue().encode(encoding, errors='ignore'))
+
         return res
 
 
-class TSVWriter(CSVWriter):
+class CSV(CSVMixin, Writer):
+    delimiter = ','
+    expansion = '.csv'
+    content_type = 'text/csv'
+
+
+class TSV(CSVMixin, Writer):
     delimiter = '\t'
     expansion = '.tsv'
+    content_type = 'text/tsv'
 
 
-class XLSWriter(Writer):
+class XLS(Writer):
     @classmethod
     def make_response(cls, filename, table: list, **kwargs):
         import xlwt
@@ -53,7 +61,7 @@ class XLSWriter(Writer):
         return res
 
 
-class XLSXWriter(Writer):
+class XLSX(Writer):
     @classmethod
     def make_response(cls, filename, table: list, **kwargs):
         from openpyxl import Workbook
