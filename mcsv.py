@@ -198,7 +198,7 @@ class CsvForWrite(CsvBase):
         self.queryset = queryset
 
     def get_response(self, filename: str,
-                     writer_class: writers.Writer = writers.CSVWriter,
+                     writer_class: writers.Writer = writers.CSV,
                      header: bool = True, **kwargs):
 
         return writer_class.make_response(
