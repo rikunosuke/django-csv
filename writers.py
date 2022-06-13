@@ -1,77 +1,100 @@
 import csv
 import io
-from django.http import HttpResponse
 
 import urllib
 
 
 class Writer:
-    @classmethod
-    def make_response(cls, filename, table: list, **kwargs):
-        return HttpResponse()
+    content_type = 'text/csv'
+    expansion = '.csv'
 
-    @classmethod
-    def _response(cls, filename, content_type='text/csv', **kwargs):
-        res = HttpResponse(content_type=content_type)
-        filename = urllib.parse.quote(filename)
+    def __init__(self, filename: str, encoding: str = 'utf-8') -> None:
+        self.filename = filename if filename.endswith(
+            self.expansion) else filename + self.expansion
+        if len(self.filename.split('.')) != 2:
+            raise ValueError(f'{filename} may have unexpected expansion. '
+                             f'`{self.expansion}` is expected.')
+        self.encoding = encoding
+
+    def make_response(self, table: list, **kwargs) -> 'HttpResponse':
+        return self._response()
+
+    def _response(self, **kwargs) -> 'HttpResponse':
+        from django.http import HttpResponse
+        res = HttpResponse(content_type=self.content_type)
+        filename = urllib.parse.quote(self.filename)
         res['Content-Disposition'] = f'attachment;filename="{filename}"'
         return res
 
 
-class CSVMixin:
-    @classmethod
-    def make_response(cls, filename, table: list, encoding='utf-8', **kwargs):
+class CsvMixin:
+    def make_response(self, table: list, **kwargs):
         with io.StringIO() as sio:
-            w = csv.writer(sio, delimiter=cls.delimiter)
+            w = csv.writer(sio, delimiter=self.delimiter)
             w.writerows(table)
-
-            res = cls._response(
-                filename=f'{filename}{cls.expansion}',
-                content_type=cls.content_type
-            )
-            res.write(sio.getvalue().encode(encoding, errors='ignore'))
+            res = self._response()
+            res.write(sio.getvalue().encode(self.encoding, errors='ignore'))
 
         return res
 
 
-class CSV(CSVMixin, Writer):
+class CsvWriter(CsvMixin, Writer):
     delimiter = ','
     expansion = '.csv'
     content_type = 'text/csv'
 
 
-class TSV(CSVMixin, Writer):
+class TsvWriter(CsvMixin, Writer):
     delimiter = '\t'
     expansion = '.tsv'
     content_type = 'text/tsv'
 
 
-class XLS(Writer):
-    @classmethod
-    def make_response(cls, filename, table: list, **kwargs):
+class ExcelMixin:
+    content_type = 'application/vnd.ms-excel'
+
+    def __init__(self, sheet_name: str = 'sheet 1', **kwargs):
+        self.sheet_name = sheet_name
+        super().__init__(**kwargs)
+
+
+class XlsWriter(ExcelMixin, Writer):
+    expansion = '.xls'
+
+    def make_response(self, table: list, **kwargs):
         import xlwt
         wb = xlwt.Workbook()
-        ws = wb.add_sheet('sheet 1')
+        ws = wb.add_sheet(self.sheet_name)
+        self.write_down(ws, table)
+        res = self._response()
+        wb.save(res)
+        return res
+
+    @staticmethod
+    def write_down(work_sheet: 'WorkSheet', table: list) -> None:
+        """
+        write down to work sheet.
+        """
         for y, row in enumerate(table):
             for x, col in enumerate(row):
-                ws.write(y, x, col)
-        res = cls._response(filename=f'{filename}.xls',
-                            content_type='application/vnd.ms-excel')
-        wb.save(res)
-        return res
+                work_sheet.write(y, x, col)
 
 
-class XLSX(Writer):
-    @classmethod
-    def make_response(cls, filename, table: list, **kwargs):
+class XlsxWriter(ExcelMixin, Writer):
+    expansion = '.xlsx'
+
+    def make_response(self, table: list, **kwargs):
         from openpyxl import Workbook
         wb = Workbook()
-        sheet = wb.active
-        sheet.title = 'sheet 1'
-        for y, row in enumerate(table, 1):
-            for x, col in enumerate(row, 1):
-                sheet.cell(y, x).value = col
-        res = cls._response(filename=f'{filename}.xlsx',
-                            content_type='application/vnd.ms-excel')
+        ws = wb.active
+        ws.title = self.sheet_name
+        self.write_down(ws, table)
+        res = self._response()
         wb.save(res)
         return res
+
+    @staticmethod
+    def write_down(work_sheet: 'WorkSheet', table: list) -> None:
+        for y, row in enumerate(table, 1):
+            for x, col in enumerate(row, 1):
+                work_sheet.cell(y, x).value = col
