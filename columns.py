@@ -1,7 +1,4 @@
-from typing import Any, List, Tuple, Optional
-
-from django.db import models
-from django.utils.functional import cached_property
+from typing import Any, List, Optional
 
 
 class NoHeaderError(Exception):
@@ -29,7 +26,7 @@ class WriteColumnMixin:
                 '`index` starts from 0. Set `write_value` = False and '
                 'CsvColumn does not write down any values.')
 
-    def get_value_for_write(self, dictionary: dict, key: str, **kwargs):
+    def get_value_for_write(self, instance, **kwargs):
         return ''
 
 
@@ -162,97 +159,41 @@ class StaticColumn(BaseColumn):
         self.static_value = static_value
         super().__init__(**kwargs)
 
-    def get_value_for_read(self, *args, **kwargs) -> Any:
+    def get_value_for_read(self, **kwargs) -> Any:
         return self.static_value
 
-    def get_value_for_write(self, *args, **kwargs) -> Any:
+    def get_value_for_write(self, **kwargs) -> Any:
         return self.static_value
 
 
-class ForeignColumn(BaseColumn):
+class ForeignColumn(AttributeColumn):
     """
     ForeignKey 先のモデルとCSVデータを関連づける
     """
     is_relation = True
 
-    def __init__(self, main, **kwargs):
+    def __init__(self, main: 'CsvPart', field_name: str, attr_name: str,
+                 **kwargs):
+        """
+        attr_name is required.
+        """
         self._main = main
-        super().__init__(**kwargs)
+        self.__field_name = field_name
+        if len(attr_name.split('__')) > 0:
+            raise ValueError(f'`{attr_name}` is invalid attr name.'
+                             'Do not include `__` in ForeignColumn attr_name.')
+        attr_name = f'{field_name}__{attr_name}'
 
-    def get_value_for_write(self, instance, field_name: str, **kwargs) -> Any:
-        """
-        CSV に値を書き込む際に呼び出される
-        instance: models.Model のインスタンス
-        field_name: models.Model のフィールド名
-        """
-        value = instance
-        for field in field_name.split('__'):
-            try:
-                value = getattr(value, field)
-            except AttributeError:
-                raise NoSuchFieldError(
-                    f'`{value.__class__.__name__}` does not have a'
-                    f'field `{field}`')
-        return value
+        super().__init__(attr_name=attr_name, **kwargs)
 
-    def _set_field_decorator(method):
+    @staticmethod
+    def __set_field_decorator(method):
         def set_field(self, *args, **kwargs):
             value = method(self, *args, **kwargs)
-            self._main.set_field(
-                kwargs.get('fieldname').split('__')[-1], value)
+            self._main.set_field(self.name, value)
             return value
         return set_field
 
-    set_field_decorator = staticmethod(_set_field_decorator)
-
-    @_set_field_decorator
+    @__set_field_decorator
     def get_value_for_read(self, row: List[str], **kwargs):
         return super().get_value_for_read(row, **kwargs)
-
-
-class ForeignColumns:
-    def __init__(self, *, model: models.Model, fieldname: str,
-                 callback: str = 'create_object'):
-
-        self.model = model
-        self.columns = []
-        self.fieldname = fieldname
-        self.field_kwargs = {}
-
-        class NoCallbackError(Exception):
-            pass
-
-        if not hasattr(self, callback):
-            raise NoCallbackError(f'{callback} method is not defined.')
-
-        self.callback = callback
-
-    def call_relations(self) -> Tuple[str, Any]:
-        return getattr(self, self.callback)()
-
-    def column(self, **kwargs):
-        column = ForeignColumn(main=self, **kwargs)
-        self.columns.append(column)
-        return column
-
-    def create_object(self):
-        return self.model.objects.create(**self.field_kwargs)
-
-    def get_object(self):
-        return self.model.objects.get(**self.field_kwargs)
-
-    def set_field(self, field, value):
-        if field not in self.read_values:
-            raise NoSuchFieldError(
-                f'`{self.model.__class__.__name__}` does not have a field '
-                f'`{field}`')
-
-        self.field_kwargs.update({field: value})
-
-    @cached_property
-    def read_values(self):
-        return [f.name for f in self.model._meta.get_fields()]
-
-
-class CsvPart:
-    pass
