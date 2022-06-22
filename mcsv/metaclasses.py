@@ -1,13 +1,14 @@
 from datetime import datetime
+from django.db import models
 from typing import Optional, Dict, Iterable, List, Any
 
 import copy
 
-from mcsv.columns import BaseColumn, AttributeColumn
+from django_csv.columns import BaseColumn, AttributeColumn
+from django_csv.mcsv.base import BasePart
 
 
-class Options:
-
+class CsvOptions:
     read_mode: bool = True
     write_mode: bool = True
     datetime_format: str = '%Y-%m-%d %H:%M:%S'
@@ -16,7 +17,7 @@ class Options:
     as_true: Iterable = ['yes', 'Yes']
     as_false: Iterable = ['no', 'No']
 
-    ALLOWED_META_ATTR_NAMES = (
+    ALLOWED_META_ATTR = (
         'read_mode',
         'write_mode',
         'datetime_format',
@@ -27,7 +28,9 @@ class Options:
         'auto_assign',
     )
 
-    APPLY_ONLY_MAIN_META_ATTR_NAMES = tuple()
+    APPLY_ONLY_MAIN_META = (
+        'auto_assign',
+    )
 
     class UnknownAttribute(Exception):
         pass
@@ -35,7 +38,10 @@ class Options:
     class UnknownColumn(Exception):
         pass
 
-    def __init__(self, meta: type, *args, **kwargs):
+    def __init__(self, meta, columns: Dict[str, BaseColumn],
+                 parts: List[BasePart]):
+
+        self.parts = parts
         meta = copy.deepcopy(meta)
 
         # validate meta attrs and set attr to Options.
@@ -43,7 +49,7 @@ class Options:
             if attr_name.startswith('_'):
                 continue
 
-            if attr_name not in self.ALLOWED_META_ATTR_NAMES:
+            if attr_name not in self.ALLOWED_META_ATTR:
                 raise self.UnknownAttribute(
                     f'Unknown Attribute is defined. `{attr_name}`')
 
@@ -55,6 +61,14 @@ class Options:
 
             setattr(self, attr_name, val)
 
+        self.columns = []
+        for name, column in columns.copy().items():
+            column.name = column.attr_name or name
+            self.columns.append(column)
+
+        if getattr(self, 'auto_assign', False):
+            self.assign_number()
+
     def convert_from_str(self, value: str) -> Any:
         if value in self.as_true:
             return True
@@ -64,7 +78,7 @@ class Options:
 
         try:
             return datetime.strptime(value, self.datetime_format)
-        except ValueError:
+        except (ValueError, TypeError):
             return value
 
     def convert_to_str(self, value: Any) -> str:
@@ -77,37 +91,19 @@ class Options:
         else:
             return str(value)
 
-
-class PartOptions(Options):
-    ALLOWED_META_ATTR_NAMES = Options.ALLOWED_META_ATTR_NAMES + (
-        'model',
-    )
-
-
-class CsvOptions(Options):
-    def __init__(self, meta, columns: Dict[str, BaseColumn],
-                 *args, **kwargs):
-        super().__init__(meta, *args, **kwargs)
-        self.columns = []
-        for name, column in columns.copy().items():
-            if column.is_relation:
-                column.name = column.get_name(name)
-            else:
-                column.name = column.attr_name or name
-            self.columns.append(column)
-
-        if getattr(self, 'auto_assign', False):
-            self.assign_number()
-
     @staticmethod
     def filter_columns(*, columns: List[BaseColumn], r_index: bool = None,
                        w_index: bool = None, for_write: bool = None,
                        for_read: bool = None, read_value: bool = None,
                        write_value: bool = None, is_static: bool = None,
-                       original: bool = False) -> list:
+                       is_relation: bool = None, original: bool = False
+                       ) -> list:
         """
         filter passed columns and return them if they match conditions.
         """
+        if is_relation is not None:
+            columns = [col for col in columns if col.is_relation == is_relation]
+
         other_params = not all(map(
             lambda x: x is None,
             [r_index, is_static, read_value, write_value]))
@@ -180,12 +176,14 @@ class CsvOptions(Options):
     def get_columns(self, *, r_index: bool = None, w_index: bool = None,
                     for_write: bool = None, for_read: bool = None,
                     read_value: bool = None, write_value: bool = None,
-                    is_static: bool = None, original: bool = False,):
+                    is_static: bool = None, is_relation: bool = None,
+                    original: bool = False):
 
         return self.filter_columns(
             r_index=r_index, w_index=w_index, for_read=for_read,
             for_write=for_write, read_value=read_value, write_value=write_value,
-            is_static=is_static, original=original, columns=self.columns)
+            is_static=is_static, is_relation=is_relation, original=original,
+            columns=self.columns)
 
     def get_column(self, name: str) -> BaseColumn:
         for col in self.columns:
@@ -221,22 +219,24 @@ class CsvOptions(Options):
 
 
 class ModelOptions(CsvOptions):
-    APPLY_ONLY_MAIN_META_ATTR_NAMES = Options.APPLY_ONLY_MAIN_META_ATTR_NAMES + (
+    APPLY_ONLY_MAIN_META = CsvOptions.APPLY_ONLY_MAIN_META + (
         'model',
         'fields',
     )
 
-    ALLOWED_META_ATTR_NAMES = Options.ALLOWED_META_ATTR_NAMES + (
+    ALLOWED_META_ATTR = CsvOptions.ALLOWED_META_ATTR + (
         'model',
         'fields'
     )
 
-    def __init__(self, meta: Optional[type], columns: Dict[str, BaseColumn]):
-        model = getattr(meta, 'model', None)
-        if not model:
-            super().__init__(meta, columns)
+    def __init__(self, meta: Optional[type], columns: Dict[str, BaseColumn],
+                 parts: List['Part'], model: models.Model = None):
+        self.model = model
+        if not hasattr(meta, 'model'):
+            super().__init__(meta, columns, parts)
             return
 
+        # auto create AttributeColumns for fields.
         field_names = getattr(meta, 'fields')
 
         if field_names == '__all__':
@@ -264,7 +264,7 @@ class ModelOptions(CsvOptions):
                 f.name: AttributeColumn(r_index=r, w_index=w, header=header)
             })
 
-        super().__init__(meta, columns)
+        super().__init__(meta, columns, parts)
 
 
 class BaseMetaclass(type):
@@ -281,10 +281,16 @@ class BaseMetaclass(type):
             meta=mcs.__get_meta(attrs.get('Meta'), bases),
             columns=dict(
                 mcs.__concat_columns(bases=bases, attrs=attrs).items()
-            )
+            ),
+            parts=mcs.__concat_parts(bases=bases, attrs=attrs),
+            **mcs._get_option_kwargs(name, bases, attrs),
         )
 
         return super().__new__(mcs, name, bases, attrs)
+
+    @classmethod
+    def _get_option_kwargs(mcs, name: str, bases: tuple, attrs: dict) -> dict:
+        return {}
 
     @classmethod
     def __concat_columns(mcs, bases: tuple, attrs: dict) -> dict:
@@ -302,6 +308,19 @@ class BaseMetaclass(type):
         return col_dict
 
     @classmethod
+    def __concat_parts(mcs, bases: tuple, attrs: dict) -> list:
+        parts = []
+        for attr in attrs.values():
+            if isinstance(attr, BasePart):
+                parts.append(attr)
+
+        for base in bases:
+            if hasattr(base, '_meta'):
+                parts.extend([part for part in base._meta.parts])
+
+        return parts
+
+    @classmethod
     def __get_meta(mcs, meta: Optional[type], bases: tuple) -> type:
         metas = list(
             copy.deepcopy(getattr(base, 'Meta'))
@@ -309,7 +328,7 @@ class BaseMetaclass(type):
         )
 
         for meta in metas:
-            for attr in mcs.option_class.APPLY_ONLY_MAIN_META_ATTR_NAMES:
+            for attr in mcs.option_class.APPLY_ONLY_MAIN_META:
                 if hasattr(meta, attr):
                     delattr(meta, attr)
         if meta:
@@ -318,13 +337,25 @@ class BaseMetaclass(type):
         return type('Meta', tuple(set(metas)), {})
 
 
-class PartMetaclass(BaseMetaclass):
-    option_class = PartOptions
-
-
 class CsvMetaclass(BaseMetaclass):
     option_class = CsvOptions
 
 
 class ModelCsvMetaclass(BaseMetaclass):
     option_class = ModelOptions
+
+    @classmethod
+    def _get_option_kwargs(mcs, name: str, bases: tuple, attrs: dict) -> dict:
+        model = None
+        if meta := attrs.get('Meta'):
+            model = getattr(meta, 'model', None)
+
+        if not model:
+            for base in bases:
+                if not (meta := getattr(base, '_meta', None)):
+                    continue
+
+                if model := getattr(meta, 'model', None):
+                    break
+
+        return {'model': model}

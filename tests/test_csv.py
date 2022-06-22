@@ -1,9 +1,7 @@
 from unittest import TestCase
 
-from django.db import models
-
-from mcsv import columns
-from mcsv.mcsv import Csv, ModelCsv
+from django_csv import columns
+from django_csv.mcsv import Csv
 
 
 class CsvTest(TestCase):

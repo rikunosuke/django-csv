@@ -1,8 +1,8 @@
 #  flake8: NOQA
 from unittest import TestCase
 
-from mcsv.columns import StaticColumn, MethodColumn, ColumnValidationError
-from mcsv.mcsv import Options
+from django_csv.columns import StaticColumn, MethodColumn, ColumnValidationError
+from django_csv.mcsv.metaclasses import CsvOptions
 
 
 class OptionsTest(TestCase):
@@ -24,15 +24,15 @@ class OptionsTest(TestCase):
         self.meta = type('Meta', (), {})
 
     def test_get_column(self):
-        opt = Options(meta=self.meta, columns=self.columns)
+        opt = CsvOptions(meta=self.meta, columns=self.columns, parts=[])
         self.assertEqual('s_i_v', opt.get_column('s_i_v').name)
 
     def test_get_columns(self):
-        opt = Options(meta=self.meta, columns=self.columns)
+        opt = CsvOptions(meta=self.meta, columns=self.columns, parts=[])
         self.assertEqual(8, len(opt.get_columns()))
 
     def test_get_columns_is_static(self):
-        opt = Options(meta=self.meta, columns=self.columns)
+        opt = CsvOptions(meta=self.meta, columns=self.columns, parts=[])
         self.assertTrue(all([col.name.startswith('s_')
                              for col in opt.get_columns(is_static=True)]))
 
@@ -40,7 +40,7 @@ class OptionsTest(TestCase):
                              for col in opt.get_columns(is_static=False)]))
 
     def test_get_columns_has_value(self):
-        opt = Options(meta=self.meta, columns=self.columns)
+        opt = CsvOptions(meta=self.meta, columns=self.columns, parts=[])
         self.assertTrue(all([col.name.endswith('_v')
                              for col in opt.get_columns(read_value=True)]))
 
@@ -55,7 +55,7 @@ class OptionsTest(TestCase):
 
     def test_get_columns_read_index(self):
 
-        opt = Options(meta=self.meta, columns=self.columns)
+        opt = CsvOptions(meta=self.meta, columns=self.columns, parts=[])
 
         self.assertTrue(all(['_i_' in col.name for col in
                         opt.get_columns(r_index=True, original=True)]))
@@ -81,7 +81,7 @@ class OptionsTest(TestCase):
             col.name for col in opt.get_columns(r_index=False)])
 
     def test_get_columns_write_index(self):
-        opt = Options(meta=self.meta, columns=self.columns)
+        opt = CsvOptions(meta=self.meta, columns=self.columns, parts=[])
 
         self.assertTrue(all(['_i_' in col.name for col in
                              opt.get_columns(w_index=True, original=True)]))
@@ -106,7 +106,7 @@ class OptionsTest(TestCase):
                                      opt.get_columns(w_index=False)])
 
     def test_get_columns_complicated(self):
-        opt = Options(meta=self.meta, columns=self.columns)
+        opt = CsvOptions(meta=self.meta, columns=self.columns, parts=[])
         cols = opt.get_columns(is_static=True, r_index=True, read_value=True)
         self.assertEqual(1, len(cols))
         self.assertEqual('s_i_v', cols[0].name)
@@ -123,11 +123,11 @@ class OptionsTest(TestCase):
         self.assertEqual(1, len(cols))
         self.assertEqual('x_x_v', cols[0].name)
 
-        opt = Options(meta=self.meta, columns=self.columns)
+        opt = CsvOptions(meta=self.meta, columns=self.columns, parts=[])
         cols = opt.get_columns(is_static=True, r_index=True, read_value=False)
         self.assertEqual(0, len(cols))
 
-        opt = Options(meta=self.meta, columns=self.columns)
+        opt = CsvOptions(meta=self.meta, columns=self.columns, parts=[])
         cols = opt.get_columns(is_static=True, r_index=False, read_value=False)
         self.assertEqual(2, len(cols))
         self.assertEqual({'s_i_x', 's_x_x'}, {col.name for col in cols})
@@ -140,7 +140,7 @@ class OptionsTest(TestCase):
         self.assertEqual({'x_x_x', 'x_i_x'}, {col.name for col in cols})
 
     def test_get_columns_for_read(self):
-        opt = Options(meta=self.meta, columns=self.columns)
+        opt = CsvOptions(meta=self.meta, columns=self.columns, parts=[])
         self.assertSetEqual(
             {'s_i_v', 'x_i_v', 's_x_v'},
             set(col.name for col in opt.get_columns(for_read=True))
@@ -174,14 +174,14 @@ class OptionsTest(TestCase):
             opt.get_columns(for_write=True, original=True)
 
     def test_get_indexes(self):
-        opt = Options(meta=self.meta, columns=self.columns)
+        opt = CsvOptions(meta=self.meta, columns=self.columns, parts=[])
         self.assertEqual(2, len(opt.get_r_indexes()))
         self.assertEqual(2, len(opt.get_w_indexes()))
         self.assertSetEqual({0, }, set(opt.get_r_indexes()))
         self.assertSetEqual({0, }, set(opt.get_w_indexes()))
 
     def test_auto_assign(self):
-        opt = Options(meta=self.meta, columns=self.columns)
+        opt = CsvOptions(meta=self.meta, columns=self.columns, parts=[])
         opt.assign_number()
         self.assertEqual(len(opt.get_columns(r_index=True)), 4)
         self.assertEqual(len(opt.get_columns(r_index=True, original=True)), 2)

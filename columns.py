@@ -166,34 +166,33 @@ class StaticColumn(BaseColumn):
         return self.static_value
 
 
-class ForeignColumn(AttributeColumn):
+class ForeignColumnMixin:
     """
     ForeignKey 先のモデルとCSVデータを関連づける
     """
     is_relation = True
 
-    def __init__(self, main: 'CsvPart', field_name: str, attr_name: str,
-                 **kwargs):
+    def __init__(self, field_name: str, attr_name: str, **kwargs):
         """
         attr_name is required.
         """
-        self._main = main
         self.__field_name = field_name
-        if len(attr_name.split('__')) > 0:
+        self.__attr_name = attr_name
+        if len(attr_name.split('__')) > 1:
             raise ValueError(f'`{attr_name}` is invalid attr name.'
                              'Do not include `__` in ForeignColumn attr_name.')
-        attr_name = f'{field_name}__{attr_name}'
+        attr_name = attr_name
 
         super().__init__(attr_name=attr_name, **kwargs)
 
-    @staticmethod
-    def __set_field_decorator(method):
-        def set_field(self, *args, **kwargs):
-            value = method(self, *args, **kwargs)
-            self._main.set_field(self.name, value)
-            return value
-        return set_field
 
-    @__set_field_decorator
-    def get_value_for_read(self, row: List[str], **kwargs):
-        return super().get_value_for_read(row, **kwargs)
+class ForeignMethodColumn(ForeignColumnMixin, MethodColumn):
+    pass
+
+
+class ForeignAttributeColumn(ForeignColumnMixin, AttributeColumn):
+    pass
+
+
+class ForeignStaticColumn(ForeignColumnMixin, StaticColumn):
+    pass
