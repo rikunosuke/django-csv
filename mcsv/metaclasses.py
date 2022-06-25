@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 from django.db import models
 from typing import Optional, Dict, Iterable, List, Any
 
@@ -12,25 +12,32 @@ class CsvOptions:
     read_mode: bool = True
     write_mode: bool = True
     datetime_format: str = '%Y-%m-%d %H:%M:%S'
+    date_format: str = '%Y-%m-%d'
     show_true: str = 'yes'
     show_false: str = 'no'
     as_true: Iterable = ['yes', 'Yes']
     as_false: Iterable = ['no', 'No']
+    auto_convert = True
+    auto_assign = False
+    padding: bool = False
 
     ALLOWED_META_ATTR = (
         'read_mode',
         'write_mode',
         'datetime_format',
+        'date_format',
         'show_true',
         'show_false',
         'as_true',
         'as_false',
+        'auto_convert',
         'auto_assign',
+        'padding',
     )
 
-    APPLY_ONLY_MAIN_META = (
-        'auto_assign',
-    )
+    APPLY_ONLY_MAIN_META = tuple()
+
+    APPLY_ONLY_LAST_META = tuple()
 
     class UnknownAttribute(Exception):
         pass
@@ -70,6 +77,9 @@ class CsvOptions:
             self.assign_number()
 
     def convert_from_str(self, value: str) -> Any:
+        if not self.auto_convert:
+            return value
+
         if value in self.as_true:
             return True
 
@@ -79,17 +89,29 @@ class CsvOptions:
         try:
             return datetime.strptime(value, self.datetime_format)
         except (ValueError, TypeError):
-            return value
+            pass
+
+        try:
+            return datetime.strptime(value, self.date_format).date()
+        except (ValueError, TypeError):
+            pass
+
+        return value
 
     def convert_to_str(self, value: Any) -> str:
-        if type(value) == datetime:
-            return value.strftime(self._meta.datetime_format)
+        if not self.auto_convert:
+            return value
 
-        elif type(value) == bool:
-            return self._meta.show_true if value else self._meta.show_false
+        if isinstance(value, bool):
+            return self.show_true if value else self.show_false
 
-        else:
-            return str(value)
+        if isinstance(value, datetime):
+            return value.strftime(self.datetime_format)
+
+        elif isinstance(value, date):
+            return value.strftime(self.date_format)
+
+        return str(value)
 
     @staticmethod
     def filter_columns(*, columns: List[BaseColumn], r_index: bool = None,
@@ -164,7 +186,7 @@ class CsvOptions:
     @staticmethod
     def get_unassigned(assigned: list) -> Iterable:
         """
-        return the list of index which is not assigned yet.
+        return a generator of index which is not assigned yet.
         """
         i = 0
         while True:
@@ -224,14 +246,25 @@ class ModelOptions(CsvOptions):
         'fields',
     )
 
+    APPLY_ONLY_LAST_META = CsvOptions.APPLY_ONLY_LAST_META + (
+        'as_part',
+    )
+
     ALLOWED_META_ATTR = CsvOptions.ALLOWED_META_ATTR + (
         'model',
-        'fields'
+        'fields',
+        'as_part',
     )
 
     def __init__(self, meta: Optional[type], columns: Dict[str, BaseColumn],
                  parts: List['Part'], model: models.Model = None):
         self.model = model
+
+        if getattr(meta, 'as_part', False):
+            # ModelCsvOptions of Part Class only has own relation columns.
+            super().__init__(meta, {}, parts)
+            return
+
         if not hasattr(meta, 'model'):
             super().__init__(meta, columns, parts)
             return
@@ -327,14 +360,14 @@ class BaseMetaclass(type):
             for base in bases if hasattr(base, 'Meta')
         )
 
-        for meta in metas:
+        for _meta in metas:
             for attr in mcs.option_class.APPLY_ONLY_MAIN_META:
-                if hasattr(meta, attr):
-                    delattr(meta, attr)
+                if hasattr(_meta, attr):
+                    delattr(_meta, attr)
         if meta:
-            metas.append(meta)
+            metas.insert(0, meta)
 
-        return type('Meta', tuple(set(metas)), {})
+        return type('Meta', tuple(metas), {})
 
 
 class CsvMetaclass(BaseMetaclass):

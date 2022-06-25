@@ -1,12 +1,11 @@
 import inspect
-from datetime import datetime
 from typing import Generator, Any, List, Dict, TypeVar, Type, Union, Callable
 
 from django.db import models
 
 from django_csv import writers
 from django_csv.columns import ForeignAttributeColumn, ForeignMethodColumn, \
-    ForeignStaticColumn
+    ForeignStaticColumn, BaseForeignColumn, ForeignWriteOnlyStaticColumn
 
 READ_PREFIX = 'field_'
 WRITE_PREFIX = 'column_'
@@ -15,7 +14,7 @@ WRITE_PREFIX = 'column_'
 class TableForRead:
     def __init__(self, table: List[list]) -> None:
         self.table = table
-        super().__init__()
+        self.run_column_validation()
 
     def run_column_validation(self):
         for col in self._meta.get_columns():
@@ -40,15 +39,12 @@ class TableForRead:
         """
         for row in self.table:
             values = self.read_from_row(row)
-            yield self.field(values, staitc=self._static.copy())
+            yield self.field(values=values, static=self._static.copy())
 
 
 class RowForRead:
     """
-    読み込み用のクラス
-    .for_read() で作成する
-    Model のフィールドに渡す値を動的に作成する場合は
-    field_*フィールド名* のメソッドを定義する。
+    A class to read values from rows.
     """
 
     def field(self, values: dict, **kwargs):
@@ -111,29 +107,6 @@ class ModelRowForRead(RowForRead):
         values = self.remove_extra_values(values)
         return values
 
-    def get_instances(self) -> Generator:
-        """
-        CSV から作成した Model のインスタンスを返すジェネレーター
-        """
-        for row in self.table:
-            values = self.field(
-                values=self.read_from_row(row), static=self._static.copy())
-            yield self._meta.model(**values)
-
-    def bulk_create(self, batch_size=100) -> None:
-        """
-        CSV から作成した Model を DB に保存する
-        batch_size: 一度にジェネレーターから作成するインスタンスの最大値
-        """
-        models = []
-        instances = list(self.get_instances())
-        length = len(instances)
-        for i, instance in enumerate(instances, 1):
-            models.append(instance)
-            if len(models) % batch_size == 0 or i == length:
-                self._meta.model.objects.bulk_create(models)
-                models = []
-
     def remove_extra_values(self, values: dict) -> dict:
         """
         Model にないフィールドの値を取り除く
@@ -152,49 +125,35 @@ class ModelRowForRead(RowForRead):
         return [field.name for field in self._meta.model._meta.get_fields()]
 
 
-class TableForWrite:
-    def __init__(self, queryset):
-        self.queryset = queryset
-        self.padding = getattr(self._meta, 'padding', False)
-        super().__init__()
+class CsvForRead(RowForRead, TableForRead):
+    pass
 
-    def get_response(self, writer: writers.Writer, header: bool = True):
-        return writer.make_response(table=self.get_table(header=header))
 
-    def get_table(self, header: bool = True):
+class ModelCsvForRead(ModelRowForRead, TableForRead):
+    def get_instances(self) -> Generator:
         """
-        ヘッダー情報と Model インスタンスから作成した値を2次元のリストで返す
+        CSV から作成した Model のインスタンスを返すジェネレーター
         """
-        table = []
-        if header:
-            table.append(self.get_header())
+        for values in self.get_as_dict():
+            yield self._meta.model(**values)
 
-        for instance in self.queryset:
-            # self._render_row に渡すために
-            # {index: value} の辞書型をつくる
-            row = self.get_row_value(instance)
-            table.append(self.convert_to_str(self._render_row(row)))
-
-        return table
-
-    def run_column_validation(self):
-        for col in self._meta.get_columns():
-            col.validate_for_write()
-
-        index = self._meta.get_w_indexes()
-        if len(index) != len(set(index)):
-            raise ValueError(
-                '`index` must be unique. Change `index` or `w_index`')
+    def bulk_create(self, batch_size=100) -> None:
+        """
+        CSV から作成した Model を DB に保存する
+        batch_size: 一度にジェネレーターから作成するインスタンスの最大値
+        """
+        models = []
+        instances = list(self.get_instances())
+        length = len(instances)
+        for i, instance in enumerate(instances, 1):
+            models.append(instance)
+            if len(models) % batch_size == 0 or i == length:
+                self._meta.model.objects.bulk_create(models)
+                models = []
 
 
 class RowForWrite:
-    """
-    書き込み用のクラス
-    .for_write() で作成する
-    列の値に編集を加える場合は
-    column_*列名* のメソッドを定義する
-    """
-    def get_header(self) -> List[str]:
+    def get_headers(self) -> List[str]:
         """
         ヘッダーの情報を {列の順番: 列名} の辞書型で返す
         Column に header が定義されていない場合は Column
@@ -220,7 +179,7 @@ class RowForWrite:
                 value = getattr(self, method_name)(
                     instance=instance, static=self._static.copy())
             else:
-                value = column.get_value_for_write(instance)
+                value = column.get_value_for_write(instance=instance)
 
             row.update({
                 column.w_index: value
@@ -233,15 +192,15 @@ class RowForWrite:
 
     def _render_row(self, maps: Dict[int, Any]) -> List[str]:
         """
-        列の順番 通りに並び替えた 値 のリストを返す
-        maps: {列の順番: 値} の辞書型
+        convert maps from dict to list ordered by index.
+        maps: {index: value}
         """
         row = []
         for i in range(max(list(maps.keys())) + 1):
             try:
                 value = maps[i]
             except KeyError:
-                if self.padding:
+                if self._meta.padding:
                     continue
                 value = ''
 
@@ -250,23 +209,41 @@ class RowForWrite:
         return row
 
     def convert_to_str(self, row: list) -> list:
-        updated = []
-        for value in row:
-            if type(value) == datetime:
-                updated.append(value.strftime(self._meta.datetime_format))
-
-            elif type(value) == bool:
-                updated.append(
-                    self._meta.show_true if value else self._meta.show_false)
-
-            else:
-                updated.append(str(value))
-
-        return updated
+        return [self._meta.convert_to_str(v) for v in row]
 
 
-class CsvForWrite(RowForWrite, TableForWrite):
-    pass
+class CsvForWrite(RowForWrite):
+    def __init__(self, queryset):
+        self.queryset = queryset
+        self.run_column_validation()
+
+    def get_response(self, writer: writers.Writer, header: bool = True):
+        return writer.make_response(table=self.get_table(header=header))
+
+    def get_table(self, header: bool = True):
+        """
+        ヘッダー情報と Model インスタンスから作成した値を2次元のリストで返す
+        """
+        table = []
+        if header:
+            table.append(self.get_headers())
+
+        for instance in self.queryset:
+            # self._render_row に渡すために
+            # {index: value} の辞書型をつくる
+            row = self.get_row_value(instance)
+            table.append(self.convert_to_str(self._render_row(row)))
+
+        return table
+
+    def run_column_validation(self):
+        for col in self._meta.get_columns():
+            col.validate_for_write()
+
+        index = self._meta.get_w_indexes()
+        if len(index) != len(set(index)):
+            raise ValueError(
+                '`index` must be unique. Change `index` or `w_index`')
 
 
 BaseCsvType = TypeVar('BaseCsvType', bound='BaseCsv')
@@ -283,15 +260,15 @@ class BaseCsv:
         pass
 
     def __init__(self, *args, **kwargs):
-        self.run_column_validation()
         self._static = {}
+        super().__init__(*args, **kwargs)
 
     def set_static_column(self, column_name: str, value: Any) -> None:
         """
         StaticColumn の static_value を書き換える
         """
         column = getattr(self, column_name, None)
-        if getattr(column, 'is_static', False):
+        if not column or not column.is_static:
             raise ValueError(f'`{column_name}` is not a static column.')
 
         column.static_value = value
@@ -307,7 +284,7 @@ class BaseCsv:
         if not cls._meta.read_mode:
             raise cls.ReadModeIsProhibited('Read Mode is prohibited')
 
-        return type(f'{cls.__name__}ForRead', (cls.read_class, cls), {}
+        return type(f'{cls.__name__}ForRead', (cls, cls.read_class), {}
                     )(table=table)
 
     @classmethod
@@ -318,16 +295,8 @@ class BaseCsv:
         if not cls._meta.write_mode:
             raise cls.WriteModeIsProhibited('Write Mode is prohibited')
 
-        return type(f'{cls.__name__}ForWrite', (cls.write_class, cls), {}
+        return type(f'{cls.__name__}ForWrite', (cls, cls.write_class), {}
                     )(queryset=queryset)
-
-
-class CsvForRead(RowForRead, TableForRead):
-    pass
-
-
-class ModelCsvForRead(ModelRowForRead, TableForRead):
-    pass
 
 
 class PartForRead(ModelRowForRead):
@@ -382,17 +351,20 @@ class BasePart(PartForWrite, PartForRead):
 
         # Don't call super().__init__ not to run validation.
 
-    def AttributeColumn(self, **kwargs) -> ForeignAttributeColumn:
-        column = ForeignAttributeColumn(field_name=self.field_name, **kwargs)
+    def _add_column(self, column_class: Type[BaseForeignColumn],
+                    **kwargs) -> BaseForeignColumn:
+        column = column_class(field_name=self.field_name, **kwargs)
         self._meta.columns.append(column)
         return column
 
-    def MethodColumn(self, **kwargs) -> ForeignMethodColumn:
-        column = ForeignMethodColumn(field_name=self.field_name, **kwargs)
-        self._meta.columns.append(column)
-        return column
+    def AttributeColumn(self, **kwargs):
+        return self._add_column(ForeignAttributeColumn, **kwargs)
 
-    def StaticColumn(self, **kwargs) -> ForeignStaticColumn:
-        column = ForeignStaticColumn(field_name=self.field_name, **kwargs)
-        self._meta.columns.append(column)
-        return column
+    def MethodColumn(self, **kwargs):
+        return self._add_column(ForeignMethodColumn, **kwargs)
+
+    def StaticColumn(self, **kwargs):
+        return self._add_column(ForeignStaticColumn, **kwargs)
+
+    def WriteOnlyStaticColumn(self, **kwargs):
+        return self._add_column(ForeignWriteOnlyStaticColumn, **kwargs)

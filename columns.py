@@ -142,13 +142,13 @@ class AttributeColumn(BaseColumn):
         return val
 
 
-class StaticColumn(BaseColumn):
+class WriteOnlyStaticColumn(BaseColumn):
     """
     StaticColumn returns a static value. The static value can define like
-    StaitColumn(static_value=<static_value>) or
+    StaticColumn(static_value=<static_value>) or
     ModelCsv.set_static_column(<column_name>, <static_value>)
-    read -> return static value.
-    write -> return static value.
+    read -> return a value from row.
+    write -> return a static value.
     """
     is_static = True
 
@@ -159,14 +159,19 @@ class StaticColumn(BaseColumn):
         self.static_value = static_value
         super().__init__(**kwargs)
 
-    def get_value_for_read(self, **kwargs) -> Any:
-        return self.static_value
-
     def get_value_for_write(self, **kwargs) -> Any:
         return self.static_value
 
 
-class ForeignColumnMixin:
+class StaticColumn(WriteOnlyStaticColumn):
+    """
+    read -> static value
+    """
+    def get_value_for_read(self, row: List[str], **kwargs):
+        return self.static_value
+
+
+class BaseForeignColumn:
     """
     ForeignKey 先のモデルとCSVデータを関連づける
     """
@@ -186,13 +191,17 @@ class ForeignColumnMixin:
         super().__init__(attr_name=attr_name, **kwargs)
 
 
-class ForeignMethodColumn(ForeignColumnMixin, MethodColumn):
+class ForeignMethodColumn(BaseForeignColumn, MethodColumn):
     pass
 
 
-class ForeignAttributeColumn(ForeignColumnMixin, AttributeColumn):
+class ForeignAttributeColumn(BaseForeignColumn, AttributeColumn):
     pass
 
 
-class ForeignStaticColumn(ForeignColumnMixin, StaticColumn):
+class ForeignStaticColumn(BaseForeignColumn, StaticColumn):
+    pass
+
+
+class ForeignWriteOnlyStaticColumn(BaseForeignColumn, WriteOnlyStaticColumn):
     pass

@@ -13,7 +13,11 @@ class PartCreateMixin:
     @classmethod
     def as_part(cls, field_name: str, model: Optional[Type[models.Model]] = None,
                 callback: str = 'get_or_create_object') -> BasePart:
-        return type(f'{cls.__name__}Part', (Part, cls), {})(
+
+        class MetaForPart:
+            as_part = True
+
+        return type(f'{cls.__name__}Part', (Part, cls), {'Meta': MetaForPart})(
             field_name=field_name, model=model, callback=callback)
 
 
