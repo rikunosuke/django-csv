@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from django.db import models
-from typing import Optional, Dict, Iterable, List, Any
+from typing import Optional, Dict, Iterable, List, Any, Type
 
 import copy
 
@@ -61,6 +61,7 @@ class CsvOptions:
                     f'Unknown Attribute is defined. `{attr_name}`')
 
             val = getattr(meta, attr_name)
+            # easy validation for `as_true` and `as_false`
             if attr_name in ('as_true', 'as_false'):
                 if isinstance(val, str):
                     raise TypeError(
@@ -73,7 +74,7 @@ class CsvOptions:
             column.name = column.attr_name or name
             self.columns.append(column)
 
-        if getattr(self, 'auto_assign', False):
+        if self.auto_assign:
             self.assign_number()
 
     def convert_from_str(self, value: str) -> Any:
@@ -248,6 +249,7 @@ class ModelOptions(CsvOptions):
 
     APPLY_ONLY_LAST_META = CsvOptions.APPLY_ONLY_LAST_META + (
         'as_part',
+        'auto_assign',
     )
 
     ALLOWED_META_ATTR = CsvOptions.ALLOWED_META_ATTR + (
@@ -257,7 +259,7 @@ class ModelOptions(CsvOptions):
     )
 
     def __init__(self, meta: Optional[type], columns: Dict[str, BaseColumn],
-                 parts: List['Part'], model: models.Model = None):
+                 parts: List['Part'], model: Type[models.Model] = None):
         self.model = model
 
         if getattr(meta, 'as_part', False):
@@ -270,13 +272,19 @@ class ModelOptions(CsvOptions):
             return
 
         # auto create AttributeColumns for fields.
-        field_names = getattr(meta, 'fields')
+        if not (field_names := getattr(meta, 'fields', None)):
+            super().__init__(meta, columns, parts)
+            return
 
         if field_names == '__all__':
-            fields = [f for f in model._meta.get_fields()
+            fields = [f for f in self.model._meta.get_fields()
                       if not f.auto_created and not f.is_relation]
         else:
-            fields = [model._meta.get_field(name) for name in field_names]
+            fields = [self.model._meta.get_field(name) for name in field_names]
+
+        # skip if the name is already used.
+        column_names = columns.keys()
+        fields = [f for f in fields if f.name not in column_names]
 
         unassigned_r = self.get_unassigned([
             col.get_r_index(original=True) for col in self.filter_columns(
@@ -287,11 +295,7 @@ class ModelOptions(CsvOptions):
                 w_index=True, original=True, columns=list(columns.values()))
         ])
 
-        column_names = columns.keys()
         for r, w, f in zip(unassigned_r, unassigned_w, fields):
-            if f.name in column_names:
-                continue
-
             header = getattr(f, 'verbose_name', f.name)
             columns.update({
                 f.name: AttributeColumn(r_index=r, w_index=w, header=header)
@@ -330,10 +334,9 @@ class BaseMetaclass(type):
         col_dict = {}
         for attr_name, attr in attrs.items():
             if isinstance(attr, BaseColumn):
-                setattr(attr, 'name', attr_name)
                 col_dict.update({attr_name: attr})
 
-        for base in bases:
+        for base in reversed(bases):
             if hasattr(base, '_meta'):
                 col_dict.update({
                     col.name: col for col in base._meta.get_columns()})

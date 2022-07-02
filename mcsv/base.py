@@ -267,7 +267,7 @@ class BaseCsv:
         """
         StaticColumn の static_value を書き換える
         """
-        column = getattr(self, column_name, None)
+        column = self._meta.get_column(column_name=column_name)
         if not column or not column.is_static:
             raise ValueError(f'`{column_name}` is not a static column.')
 
@@ -334,10 +334,10 @@ class PartForWrite(RowForWrite):
 
 
 class BasePart(PartForWrite, PartForRead):
-    def __init__(self, field_name: str, model: Type[models.Model] = None,
+    def __init__(self, field_name: str,
                  callback: Union[str, Callable] = 'get_or_create_object',
                  **kwargs):
-        self.model = model or self._meta.model
+        self.model = self._meta.model
         self.field_name = field_name
         self.padding = getattr(self._meta, 'padding', False)  # for write.
         self._static = {}
@@ -351,20 +351,21 @@ class BasePart(PartForWrite, PartForRead):
 
         # Don't call super().__init__ not to run validation.
 
-    def _add_column(self, column_class: Type[BaseForeignColumn],
+    def _add_column(self, column_class: Type[BaseForeignColumn], attr_name: str,
                     **kwargs) -> BaseForeignColumn:
-        column = column_class(field_name=self.field_name, **kwargs)
+        column = column_class(
+            field_name=self.field_name,  attr_name=attr_name, **kwargs)
         self._meta.columns.append(column)
         return column
 
-    def AttributeColumn(self, **kwargs):
-        return self._add_column(ForeignAttributeColumn, **kwargs)
+    def AttributeColumn(self, attr_name: str, **kwargs):
+        return self._add_column(ForeignAttributeColumn, attr_name, **kwargs)
 
-    def MethodColumn(self, **kwargs):
-        return self._add_column(ForeignMethodColumn, **kwargs)
+    def MethodColumn(self, attr_name, **kwargs):
+        return self._add_column(ForeignMethodColumn, attr_name, **kwargs)
 
-    def StaticColumn(self, **kwargs):
-        return self._add_column(ForeignStaticColumn, **kwargs)
+    def StaticColumn(self, attr_name, **kwargs):
+        return self._add_column(ForeignStaticColumn, attr_name, **kwargs)
 
-    def WriteOnlyStaticColumn(self, **kwargs):
-        return self._add_column(ForeignWriteOnlyStaticColumn, **kwargs)
+    def WriteOnlyStaticColumn(self, attr_name, **kwargs):
+        return self._add_column(ForeignWriteOnlyStaticColumn, attr_name, **kwargs)
