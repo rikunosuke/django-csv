@@ -305,7 +305,7 @@ class CsvMetaOptionTest(TestCase):
             False, True, datetime(2022, 6, 25), date(2022, 6, 25), False, True
         ])
 
-    def test_padding(self):
+    def test_insert_blank_column(self):
         class NotPaddingCsv(Csv):
             zero = columns.StaticColumn(static_value=0, index=0)
             one = columns.StaticColumn(static_value=1, index=1)
@@ -318,7 +318,7 @@ class CsvMetaOptionTest(TestCase):
 
         class PaddingCsv(NotPaddingCsv):
             class Meta:
-                padding = True
+                insert_blank_column = False
 
         for_write = PaddingCsv.for_write(queryset=[1])
         row = for_write.get_table(header=False)[0]

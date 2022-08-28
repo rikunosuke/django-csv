@@ -55,7 +55,7 @@ class BaseColumn(ReadColumnMixin, WriteColumnMixin):
     def __init__(self, *, header: str = None, index: int = None,
                  w_index: int = None, r_index: int = None,
                  write_value: bool = True, read_value: bool = True,
-                 attr_name: Optional[str] = None):
+                 attr_name: Optional[str] = None, to: Any = str):
         """
         index: csv column index. Start from 0.
         w_index: csv column index this column use when write down.
@@ -82,6 +82,7 @@ class BaseColumn(ReadColumnMixin, WriteColumnMixin):
         self.write_value = write_value
         self.read_value = read_value
         self.attr_name = attr_name
+        self.to = to
 
     def get_r_index(self, original: bool = False) -> Optional[int]:
         return self.__original_r_index if original else self.r_index

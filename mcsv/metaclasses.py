@@ -19,7 +19,8 @@ class CsvOptions:
     as_false: Iterable = ['no', 'No']
     auto_convert = True
     auto_assign = False
-    padding: bool = False
+    insert_blank_column: bool = True
+    default_if_none = ''
 
     ALLOWED_META_ATTR = (
         'read_mode',
@@ -32,7 +33,8 @@ class CsvOptions:
         'as_false',
         'auto_convert',
         'auto_assign',
-        'padding',
+        'insert_blank_column',
+        'default_if_none'
     )
 
     APPLY_ONLY_MAIN_META = tuple()
@@ -77,39 +79,61 @@ class CsvOptions:
         if self.auto_assign:
             self.assign_number()
 
-    def convert_from_str(self, value: str) -> Any:
-        if not self.auto_convert:
+    def convert_from_str(self, value: Any, to: Any) -> Any:
+        if not self.auto_convert or not isinstance(value, str):
             return value
 
-        if value in self.as_true:
-            return True
+        if to == str:
+            return value
 
-        elif value in self.as_false:
-            return False
+        if to == int:
+            try:
+                return int(value)
+            except ValueError:
+                return None
 
-        try:
-            return datetime.strptime(value, self.datetime_format)
-        except (ValueError, TypeError):
-            pass
+        if to == float:
+            try:
+                return float(value)
+            except ValueError:
+                return None
 
-        try:
-            return datetime.strptime(value, self.date_format).date()
-        except (ValueError, TypeError):
-            pass
+        if to == bool:
+            if value in self.as_true:
+                return True
+
+            elif value in self.as_false:
+                return False
+            else:
+                return None
+
+        if to in (date, datetime):
+            try:
+                return datetime.strptime(value, self.datetime_format)
+            except (ValueError, TypeError):
+                pass
+
+            try:
+                return datetime.strptime(value, self.date_format).date()
+            except (ValueError, TypeError):
+                return None
 
         return value
 
-    def convert_to_str(self, value: Any) -> str:
-        if not self.auto_convert:
-            return value
+    def convert_to_str(self, value: Any, to: Any) -> str:
+        if not self.auto_convert or to == str:
+            return str(value)
 
-        if isinstance(value, bool):
+        if value is None:
+            return self.default_if_none
+
+        if to == bool:
             return self.show_true if value else self.show_false
 
-        if isinstance(value, datetime):
+        if to == datetime:
             return value.strftime(self.datetime_format)
 
-        elif isinstance(value, date):
+        elif to == date:
             return value.strftime(self.date_format)
 
         return str(value)
@@ -241,6 +265,25 @@ class CsvOptions:
             w_index=True, original=original)]
 
 
+def get_type_from_model_field(field: models.Field):
+    if isinstance(field, models.IntegerField):
+        return int
+
+    if isinstance(field, models.FloatField):
+        return float
+
+    if isinstance(field, models.BooleanField):
+        return bool
+
+    if isinstance(field, models.DateTimeField):
+        return datetime
+
+    if isinstance(field, models.DateField):
+        return date
+
+    return str
+
+
 class ModelOptions(CsvOptions):
     APPLY_ONLY_MAIN_META = CsvOptions.APPLY_ONLY_MAIN_META + (
         'model',
@@ -286,19 +329,31 @@ class ModelOptions(CsvOptions):
         column_names = columns.keys()
         fields = [f for f in fields if f.name not in column_names]
 
-        unassigned_r = self.get_unassigned([
-            col.get_r_index(original=True) for col in self.filter_columns(
-                r_index=True, original=True, columns=list(columns.values()))
-        ])
-        unassigned_w = self.get_unassigned([
-            col.get_w_index(original=True) for col in self.filter_columns(
-                w_index=True, original=True, columns=list(columns.values()))
-        ])
+        _kwargs = {
+            'columns': list(columns.values()),
+            'original': True
+        }
+
+        unassigned_r = self.get_unassigned(
+            [
+                col.get_r_index(original=True)
+                for col in self.filter_columns(r_index=True, **_kwargs)
+            ]
+        )
+
+        unassigned_w = self.get_unassigned(
+            [
+                col.get_w_index(original=True)
+                for col in self.filter_columns(w_index=True, **_kwargs)
+            ]
+        )
 
         for r, w, f in zip(unassigned_r, unassigned_w, fields):
             header = getattr(f, 'verbose_name', f.name)
+            to = get_type_from_model_field(f)
+
             columns.update({
-                f.name: AttributeColumn(r_index=r, w_index=w, header=header)
+                f.name: AttributeColumn(r_index=r, w_index=w, header=header, to=to)
             })
 
         super().__init__(meta, columns, parts)
@@ -382,11 +437,7 @@ class ModelCsvMetaclass(BaseMetaclass):
 
     @classmethod
     def _get_option_kwargs(mcs, name: str, bases: tuple, attrs: dict) -> dict:
-        model = None
-        if meta := attrs.get('Meta'):
-            model = getattr(meta, 'model', None)
-
-        if not model:
+        if not (model := getattr(attrs.get('Meta'), 'model', None)):
             for base in bases:
                 if not (meta := getattr(base, '_meta', None)):
                     continue

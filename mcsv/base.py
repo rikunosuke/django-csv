@@ -1,5 +1,6 @@
 import inspect
-from typing import Generator, Any, List, Dict, TypeVar, Type, Union, Callable
+from typing import Generator, Any, List, Dict, TypeVar, Type, Union, Callable, \
+    Optional
 
 from django.db import models
 
@@ -82,18 +83,13 @@ class RowForRead:
         for column in self._meta.get_columns(
                 for_read=True, is_relation=is_relation):
             values.update({
-                column.name: column.get_value_for_read(row=row)
+                column.name: self._meta.convert_from_str(
+                    column.get_value_for_read(row=row),
+                    to=column.to
+                )
             })
-        values = self.convert_from_str(values)
 
         return self.apply_method_change(values)
-
-    def convert_from_str(self, values: dict) -> dict:
-        updated = values.copy()
-        for k, v in values.items():
-            updated[k] = self._meta.convert_from_str(v)
-
-        return updated
 
 
 class ModelRowForRead(RowForRead):
@@ -159,31 +155,32 @@ class RowForWrite:
         Column に header が定義されていない場合は Column
         のクラス変数名を列名にする
         """
-        headers = {}
-        for column in self._meta.get_columns(for_write=True):
-            headers.update({
-                column.w_index: getattr(column, 'header', column.name)
-            })
-
-        return self._render_row(headers)
+        return self._render_row({
+            column.get_w_index(): getattr(column, 'header', column.name)
+            for column in self._meta.get_columns(for_write=True)
+        })
 
     def get_row_value(self, instance, is_relation: bool = False) -> Dict[int, str]:
         """
         return {w_index: value}
         """
-        row = {}
-        for column in self._meta.get_columns(
-                for_write=True, is_relation=is_relation):
-            method_name = WRITE_PREFIX + column.name
+        def __get_row_from_column(_column):
+            method_name = WRITE_PREFIX + _column.name
             if hasattr(self, method_name):
-                value = getattr(self, method_name)(
-                    instance=instance, static=self._static.copy())
+                _value = getattr(self, method_name)(
+                    instance=instance, static=self._static.copy()
+                )
             else:
-                value = column.get_value_for_write(instance=instance)
+                _value = _column.get_value_for_write(instance=instance)
 
-            row.update({
-                column.w_index: value
-            })
+            return self._meta.convert_to_str(_value, to=_column.to)
+
+        row = {
+            column.get_w_index(): __get_row_from_column(column)
+            for column in self._meta.get_columns(
+                for_write=True, is_relation=is_relation
+            )
+        }
 
         for part in self._meta.parts:
             row.update(part.get_row_value(instance, is_relation=True))
@@ -195,21 +192,20 @@ class RowForWrite:
         convert maps from dict to list ordered by index.
         maps: {index: value}
         """
-        row = []
-        for i in range(max(list(maps.keys())) + 1):
+        def __get_value_from_map(_i) -> Optional[str]:
             try:
-                value = maps[i]
+                return maps[_i]
             except KeyError:
-                if self._meta.padding:
-                    continue
-                value = ''
+                if self._meta.insert_blank_column:
+                    return ''
 
-            row.append(value)
-
-        return row
-
-    def convert_to_str(self, row: list) -> list:
-        return [self._meta.convert_to_str(v) for v in row]
+        return list(filter(
+            lambda x: x is not None,
+            [
+                __get_value_from_map(i)
+                for i in range(max(list(maps.keys())) + 1)
+             ]
+        ))
 
 
 class CsvForWrite(RowForWrite):
@@ -218,21 +214,18 @@ class CsvForWrite(RowForWrite):
         self.run_column_validation()
 
     def get_response(self, writer: writers.Writer, header: bool = True):
-        return writer.make_response(table=self.get_table(header=header))
+        writer.write_down(table=self.get_table(header=header))
+        return writer.make_response()
 
     def get_table(self, header: bool = True):
         """
         ヘッダー情報と Model インスタンスから作成した値を2次元のリストで返す
         """
-        table = []
-        if header:
-            table.append(self.get_headers())
-
-        for instance in self.queryset:
-            # self._render_row に渡すために
-            # {index: value} の辞書型をつくる
-            row = self.get_row_value(instance)
-            table.append(self.convert_to_str(self._render_row(row)))
+        table = [self.get_headers()] if header else []
+        table += [
+            self._render_row(self.get_row_value(instance=instance))
+            for instance in self.queryset
+        ]
 
         return table
 
@@ -326,20 +319,27 @@ class PartForRead(ModelRowForRead):
 class PartForWrite(RowForWrite):
     def get_row_value(self, instance, is_relation: bool = False
                       ) -> Dict[int, str]:
-        instance = getattr(instance, self.field_name)
-        if not isinstance(instance, self.model):
+        related_instance = getattr(instance, self.field_name)
+        if not isinstance(related_instance, self.model):
             raise ValueError(f'Wrong field name. `{self.field_name}` is not '
                              f'{self.model.__class__.__name__}.')
-        return super().get_row_value(instance, is_relation=is_relation)
+        return super().get_row_value(related_instance, is_relation=is_relation)
 
 
 class BasePart(PartForWrite, PartForRead):
     def __init__(self, field_name: str,
                  callback: Union[str, Callable] = 'get_or_create_object',
                  **kwargs):
+
+        if self._meta.model is None:
+            mcsv_class_name = self.__class__.__name__.split('Part', 1)[0]
+            raise ValueError(
+                f'django model is not defined in meta class of {mcsv_class_name}'
+            )
+
         self.model = self._meta.model
         self.field_name = field_name
-        self.padding = getattr(self._meta, 'padding', False)  # for write.
+        self.insert_blank_column = getattr(self._meta, 'insert_blank_column', True)  # for write.
         self._static = {}
 
         if isinstance(callback, str):
