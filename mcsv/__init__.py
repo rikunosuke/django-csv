@@ -7,6 +7,7 @@ class PartCreateMixin:
     def as_part(cls, field_name: str,
                 callback: str = 'get_or_create_object') -> BasePart:
 
+        # override metaclass for part.
         class MetaForPart:
             as_part = True
 

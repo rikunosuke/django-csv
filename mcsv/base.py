@@ -260,7 +260,7 @@ class BaseCsv:
         """
         StaticColumn の static_value を書き換える
         """
-        column = self._meta.get_column(column_name=column_name)
+        column = self._meta.get_column(name=column_name)
         if not column or not column.is_static:
             raise ValueError(f'`{column_name}` is not a static column.')
 
@@ -319,6 +319,7 @@ class PartForRead(ModelRowForRead):
 class PartForWrite(RowForWrite):
     def get_row_value(self, instance, is_relation: bool = False
                       ) -> Dict[int, str]:
+        # get foreign model.
         related_instance = getattr(instance, self.field_name)
         if not isinstance(related_instance, self.model):
             raise ValueError(f'Wrong field name. `{self.field_name}` is not '

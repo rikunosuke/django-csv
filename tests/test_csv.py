@@ -215,10 +215,10 @@ class CsvMetaOptionTest(TestCase):
 
     def test_meta_convert(self):
         class DefaultConvertCsv(Csv):
-            false = columns.MethodColumn(index=0)
-            true = columns.MethodColumn(index=1)
-            date_time = columns.MethodColumn(index=2)
-            date_ = columns.MethodColumn(index=3)
+            false = columns.MethodColumn(index=0, to=bool)
+            true = columns.MethodColumn(index=1, to=bool)
+            date_time = columns.MethodColumn(index=2, to=datetime)
+            date_ = columns.MethodColumn(index=3, to=date)
 
             def column_false(self, **kwargs):
                 return False
@@ -251,8 +251,8 @@ class CsvMetaOptionTest(TestCase):
         self.assertListEqual(row, input_row)
 
         class ShowBooleanCsv(DefaultConvertCsv):
-            false2 = columns.MethodColumn(index=4)
-            true2 = columns.MethodColumn(index=5)
+            false2 = columns.MethodColumn(index=4, to=bool)
+            true2 = columns.MethodColumn(index=5, to=bool)
 
             class Meta:
                 show_true = 'Show True'
@@ -302,7 +302,7 @@ class CsvMetaOptionTest(TestCase):
         boolean_for_write = OverrideShowBooleanCsv.for_write(queryset=[1])
         row = boolean_for_write.get_table(header=False)[0]
         self.assertListEqual(row, [
-            False, True, datetime(2022, 6, 25), date(2022, 6, 25), False, True
+            'False', 'True', '2022-06-25 00:00:00', '2022-06-25', 'False', 'True'
         ])
 
     def test_insert_blank_column(self):

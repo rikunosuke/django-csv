@@ -3,7 +3,7 @@ from django.core.files import File
 from openpyxl import load_workbook
 
 import xlrd
-from datetime import datetime, date
+from datetime import datetime
 from typing import Union, TextIO, Optional
 
 

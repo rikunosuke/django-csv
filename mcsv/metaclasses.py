@@ -1,5 +1,6 @@
 from datetime import datetime, date
 from django.db import models
+from django.utils import timezone
 from typing import Optional, Dict, Iterable, List, Any, Type
 
 import copy
@@ -13,6 +14,7 @@ class CsvOptions:
     write_mode: bool = True
     datetime_format: str = '%Y-%m-%d %H:%M:%S'
     date_format: str = '%Y-%m-%d'
+    use_current_timezone: bool = True
     show_true: str = 'yes'
     show_false: str = 'no'
     as_true: Iterable = ['yes', 'Yes']
@@ -109,9 +111,15 @@ class CsvOptions:
 
         if to in (date, datetime):
             try:
-                return datetime.strptime(value, self.datetime_format)
+                naive = datetime.strptime(value, self.datetime_format)
             except (ValueError, TypeError):
                 pass
+            else:
+                if self.use_current_timezone:
+                    return timezone.make_aware(
+                        naive, timezone.get_current_timezone())
+                else:
+                    return naive
 
             try:
                 return datetime.strptime(value, self.date_format).date()
@@ -131,6 +139,9 @@ class CsvOptions:
             return self.show_true if value else self.show_false
 
         if to == datetime:
+            if self.use_current_timezone:
+                value = value.astimezone(timezone.get_current_timezone())
+
             return value.strftime(self.datetime_format)
 
         elif to == date:
