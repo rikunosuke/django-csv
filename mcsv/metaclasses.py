@@ -14,7 +14,7 @@ class CsvOptions:
     write_mode: bool = True
     datetime_format: str = '%Y-%m-%d %H:%M:%S'
     date_format: str = '%Y-%m-%d'
-    use_current_timezone: bool = True
+    tzinfo = timezone.get_current_timezone()
     show_true: str = 'yes'
     show_false: str = 'no'
     as_true: Iterable = ['yes', 'Yes']
@@ -115,9 +115,8 @@ class CsvOptions:
             except (ValueError, TypeError):
                 pass
             else:
-                if self.use_current_timezone:
-                    return timezone.make_aware(
-                        naive, timezone.get_current_timezone())
+                if self.tzinfo:
+                    return timezone.make_aware(naive, self.tzinfo)
                 else:
                     return naive
 
@@ -139,8 +138,8 @@ class CsvOptions:
             return self.show_true if value else self.show_false
 
         if to == datetime:
-            if self.use_current_timezone:
-                value = value.astimezone(timezone.get_current_timezone())
+            if self.tzinfo:
+                value = value.astimezone(self.tzinfo)
 
             return value.strftime(self.datetime_format)
 
