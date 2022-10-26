@@ -1,5 +1,6 @@
 import dataclasses
 from datetime import datetime, date
+from django.utils import timezone
 from unittest import TestCase
 
 from django_csv import columns
@@ -227,7 +228,7 @@ class CsvMetaOptionTest(TestCase):
                 return True
 
             def column_date_time(self, **kwargs):
-                return datetime(2022, 6, 25)
+                return datetime(2022, 6, 25, tzinfo=timezone.get_current_timezone())
 
             def column_date_(self, **kwargs):
                 return date(2022, 6, 25)
@@ -239,7 +240,7 @@ class CsvMetaOptionTest(TestCase):
 
         expected_result_for_read = {
             'false': False, 'true': True,
-            'date_time': datetime(2022, 6, 25),
+            'date_time': datetime(2022, 6, 25, tzinfo=timezone.get_current_timezone()),
             'date_': date(2022, 6, 25),
         }
 
@@ -302,7 +303,7 @@ class CsvMetaOptionTest(TestCase):
         boolean_for_write = OverrideShowBooleanCsv.for_write(queryset=[1])
         row = boolean_for_write.get_table(header=False)[0]
         self.assertListEqual(row, [
-            'False', 'True', '2022-06-25 00:00:00', '2022-06-25', 'False', 'True'
+            'False', 'True', '2022-06-25 00:00:00+09:00', '2022-06-25', 'False', 'True'
         ])
 
     def test_insert_blank_column(self):

@@ -3,6 +3,8 @@ from unittest import TestCase
 
 from django_csv import readers
 
+TEST_DATA_DIR = os.path.dirname(__file__) + '/test_data'
+
 
 class ReaderTest(TestCase):
     @classmethod
@@ -16,7 +18,7 @@ class ReaderTest(TestCase):
         ]
 
     def test_csv_reader(self):
-        with open(f'{os.getcwd()}/test_data/CsvTestData.csv', 'r') as f:
+        with open(f'{TEST_DATA_DIR}/CsvTestData.csv', 'r') as f:
             table = readers.CsvReader(file=f, table_starts_from=1).get_table()
 
         for y, (expected_row, row) in enumerate(zip(self.expected, table)):
@@ -25,7 +27,7 @@ class ReaderTest(TestCase):
                     self.assertEqual(expected_cell, cell)
 
     def test_tsv_reader(self):
-        with open(f'{os.getcwd()}/test_data/TsvTestData.tsv', 'r') as f:
+        with open(f'{TEST_DATA_DIR}/TsvTestData.tsv', 'r') as f:
             table = readers.TsvReader(file=f, table_starts_from=1).get_table()
 
         for y, (expected_row, row) in enumerate(zip(self.expected, table)):
@@ -34,7 +36,7 @@ class ReaderTest(TestCase):
                     self.assertEqual(expected_cell, cell)
 
     def test_xlsx_reader(self):
-        with open(f'{os.getcwd()}/test_data/XlsxTestData.xlsx', 'br') as f:
+        with open(f'{TEST_DATA_DIR}/XlsxTestData.xlsx', 'br') as f:
             table = readers.XlsxReader(
                 file=f, table_starts_from=1, date_format='%Y/%m/%d',
                 datetime_format='%Y/%m/%d %H:%M:%S'
