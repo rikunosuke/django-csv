@@ -45,7 +45,12 @@ class TableForRead:
 
 class RowForRead:
     """
-    A class to read values from rows.
+    A class to read values from each row.
+    1. get value from csv. Call Column.get_value_for_read() method.
+    2. apply `field_*` method change. The passed values are row value got in
+       1st step.
+    3. apply `field` method. The passed values are fixed value modified in
+       2nd step.
     """
 
     def field(self, values: dict, **kwargs):
@@ -56,10 +61,17 @@ class RowForRead:
 
     def apply_method_change(self, values: dict) -> dict:
         """
-        動的なフィールドの値を作成する
-        values: 各 Column から取り出した {field 名: 値} の辞書型
-        def field_*(self, values: dict) -> Any:
-        * 部分をフィールド名にする。
+        call method named `field_<attr_name>.`
+
+        e.g.
+        class BookCsv(ModelCsv):
+            title = MethodColumn(...)
+
+            def field_title(self, values: dict) -> Any:
+                title = values['title']
+                return title.replace('-', '')
+
+        values: raw values got from csv.
         """
         methods = inspect.getmembers(self, predicate=inspect.ismethod)
         updated = values.copy()
@@ -243,6 +255,9 @@ BaseCsvType = TypeVar('BaseCsvType', bound='BaseCsv')
 
 
 class BaseCsv:
+    """
+    Manage Class to create CsvForRead and CsvForWrite.
+    """
     read_class = None
     write_class = CsvForWrite
 
@@ -297,6 +312,7 @@ class PartForRead(ModelRowForRead):
         self._static = static.copy()  # inject static from main csv.
 
         values = super().read_from_row(row, is_relation=True)
+        values = super().field(values=values)
         return self._callback(values=values)
 
     def get_or_create_object(self, values: dict) -> models.Model:
@@ -350,7 +366,7 @@ class BasePart(PartForWrite, PartForRead):
         else:
             raise ValueError('`callback` must be str or callable.')
 
-        # Don't call super().__init__ not to run validation.
+        # Don't call super().__init__ because not to run column validations.
 
     def _add_column(self, column_class: Type[BaseForeignColumn], attr_name: str,
                     **kwargs) -> BaseForeignColumn:
@@ -359,6 +375,8 @@ class BasePart(PartForWrite, PartForRead):
         self._meta.columns.append(column)
         return column
 
+    # Use UpperCamel case.
+    # e.g. prt.AttributeColumn()
     def AttributeColumn(self, attr_name: str, **kwargs):
         return self._add_column(ForeignAttributeColumn, attr_name, **kwargs)
 

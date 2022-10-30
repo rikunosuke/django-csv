@@ -157,6 +157,14 @@ class CsvOptions:
                        ) -> list:
         """
         filter passed columns and return them if they match conditions.
+        r_index: if True, return columns having `r_index.`
+        for_read: if True, return columns which are for read.
+        read_value: if True, return columns whose `read_value` is True.
+        is_static: if True, return columns which are static columns.
+        is_relation: if True, return columns which are columns for a related model.
+        original: use this param with `r_index` or `w_index.` if true, return
+                  only columns which have original r or w indexes.
+                  original index is index defined by user, not automatically assigned.
         """
         if is_relation is not None:
             columns = [col for col in columns if col.is_relation == is_relation]
@@ -252,7 +260,7 @@ class CsvOptions:
     def assign_number(self) -> None:
         """
         Set r and w indexes to the columns not having original indexes.
-        If run, all indexes automatically assigned are overwritten.
+        If this method calls, all indexes assigned automatically are overwritten.
         """
         for i, col in zip(self.get_unassigned(self.get_r_indexes(True)),
                           self.get_columns(

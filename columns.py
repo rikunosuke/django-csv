@@ -32,6 +32,8 @@ class WriteColumnMixin:
 
 class ReadColumnMixin:
     def validate_for_read(self) -> None:
+        # if static column, then an index is not necessary because this column
+        # does not have to read from csv file, but return a same static value.
         if self.is_static or not self.read_value:
             return
 
@@ -58,12 +60,13 @@ class BaseColumn(ReadColumnMixin, WriteColumnMixin):
                  attr_name: Optional[str] = None, to: Any = str):
         """
         index: csv column index. Start from 0.
-        w_index: csv column index this column use when write down.
-        r_index: csv column index this column use when read.
-        header: csv column header. Use write section.
+        w_index: csv column index. Used only write mode.
+        r_index: csv column index. Used only read mode.
+        header: csv column header. Used only write mode.
         write_value: if False then this column does not write down any value.
         read_value: if False then this column deos not pass any value.
         attr_name: The name Column use when retrieve value from instance.
+        to: Type of value. Used when convert value to str, or str to the type.
         """
         self.header = header
 
@@ -115,26 +118,25 @@ class BaseColumn(ReadColumnMixin, WriteColumnMixin):
 
 class MethodColumn(BaseColumn):
     """
-    MethodColumn is for reserving column index.
     Use this column if you don't have to get value from instance but want to
     write value dynamically by using column_*.
     read -> get value from a cell.
-    write -> return '' default. fix value by using column_*.
+    write -> return '' as default. Fix value by using column_*.
     """
 
 
 class AttributeColumn(BaseColumn):
     """
-    The purpose of AttributeColumn is to get a value from instance.
-    attribute name must be equal to a class variable name of this column.
+    The purpose of AttributeColumn is to get a value from an instance.
+    Attribute name must be equal to a class variable name of this column.
     <attr_name> = AttributeColumn(...)
     read -> get value from a cell.
     write -> return attr value from an instance.
     """
     def get_value_for_write(self, instance, **kwargs) -> Any:
         """
-        instance: instance of class such as Django Model or Dataclass etc.
-        attr_name: field name of Django Model
+        instance: An instance of class such as Django Model or Dataclass etc.
+        attr_name: Field name of Django Model, or attribute name of an instance.
         """
         val = instance
         for attr_name in self.name.split('__'):
@@ -174,19 +176,28 @@ class StaticColumn(WriteOnlyStaticColumn):
 
 class BaseForeignColumn:
     """
-    ForeignKey 先のモデルとCSVデータを関連づける
+    Column for ForeignKey model.
     """
     is_relation = True
 
     def __init__(self, field_name: str, attr_name: str, **kwargs):
         """
-        attr_name is required.
+        field_name: Field name of foreign model.
+        attr_name: Attribute name of foreign model.
+        e.g.
+        class Child(models.Model):
+            child_name = models.CharField(max_length=...)
+
+        class Parent(models.Model):
+            child = models.ForeignKey(Child, on_delete=...)
+
+        `field_name` is 'child' and `attr_name` is 'child_name'.
         """
         self.__field_name = field_name
         self.__attr_name = attr_name
         if len(attr_name.split('__')) > 1:
             raise ValueError(f'`{attr_name}` is invalid attr name.'
-                             'Do not include `__` in ForeignColumn attr_name.')
+                             'Don\'t include `__` in ForeignColumn attr_name.')
         attr_name = attr_name
 
         super().__init__(attr_name=attr_name, **kwargs)
