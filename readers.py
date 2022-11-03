@@ -1,19 +1,23 @@
 import csv
+import io
 from django.core.files import File
-from openpyxl import load_workbook
 
-import xlrd
 from datetime import datetime
 from typing import Union, TextIO, Optional
 
 
 class Reader:
-    def __init__(self, *, file: Union[TextIO, File], encoding: str = 'cp932',
+    convert_to_stringio: bool = False
+    def __init__(self, *, file: Union[TextIO, File], encoding: str = 'utf-8',
                  table_starts_from: int = 0, **kwargs):
         if isinstance(file, File):
-            self.file = file.file
+            f = file.file
         else:
-            self.file = file
+            f = file
+        if self.convert_to_stringio and isinstance(f, io.BytesIO):
+            f = io.TextIOWrapper(f, encoding=encoding)
+
+        self.file: io.BytesIO | io.StringIO = f
         self.encoding = encoding
         self.table_starts_from = table_starts_from
         self.kwargs = kwargs
@@ -21,6 +25,7 @@ class Reader:
 
 class CsvBase(Reader):
     delimiter = None
+    convert_to_stringio = True
 
     def get_table(self, table_starts_from: Optional[int] = None) -> list:
         table_starts_from = self.table_starts_from \
@@ -49,8 +54,10 @@ class ExcelBase(Reader):
 class XlsReader(ExcelBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        import xlrd
         self.wb = xlrd.open_workbook(
             file_contents=self.file.read(), **self.kwargs)
+        self.xldate_as_tuple = xlrd.xldate_as_tuple
 
     def get_table(self, sheet_index: int = 0,
                   table_starts_from: Optional[int] = None
@@ -65,7 +72,7 @@ class XlsReader(ExcelBase):
 
             if _cell.ctype == 3:
                 _d = datetime(
-                    *xlrd.xldate_as_tuple(_cell.value, self.wb.datemode))
+                    *self.xldate_as_tuple(_cell.value, self.wb.datemode))
                 if all([
                     _d.hour == 0, _d.minute == 0, _d.second == 0,
                     _d.microsecond == 0]
@@ -94,6 +101,7 @@ class XlsReader(ExcelBase):
 class XlsxReader(ExcelBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        from openpyxl import load_workbook
         self.wb = load_workbook(self.file, data_only=True)
 
     def get_table(self, sheet_index: int = 0,

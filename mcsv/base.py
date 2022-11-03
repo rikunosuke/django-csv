@@ -26,7 +26,7 @@ class TableForRead:
             raise ValueError(
                 '`index` must be unique. Change `index` or `r_index`')
 
-        if len(self.table[1]) < max(indexes):
+        if len(self.table[0]) < max(indexes):
             class ReadIndexOverColumnNumberError(Exception):
                 pass
 

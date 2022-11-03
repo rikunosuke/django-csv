@@ -114,6 +114,8 @@ class XlsxWriter(ExcelMixin, Writer):
 
     def __init__(self, *args, **kwargs):
         self.wb = Workbook()
+        # delete default sheet
+        self.wb.remove(self.wb.active)
         super().__init__(*args, **kwargs)
 
     def get_sheet_names(self) -> list:
