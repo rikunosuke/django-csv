@@ -14,21 +14,19 @@ class CsvTest(TestCase):
             attribute: str
 
         class DefaultUseCsv(Csv):
-            write_only_static = columns.WriteOnlyStaticColumn(
-                index=0, header='write only static')
             static = columns.StaticColumn(
-                index=1, static_value='static', header='static')
+                index=0, static_value='static', header='static')
             insert_static = columns.StaticColumn(
-                index=2, header='insert static')
+                index=1, header='insert static')
 
-            attribute = columns.AttributeColumn(index=3, header='attribute')
-            method = columns.MethodColumn(index=4, header='method')
+            attribute = columns.AttributeColumn(index=2, header='attribute')
+            method = columns.MethodColumn(index=3, header='method')
 
             def column_method(self, instance: TestClass, **kwargs) -> str:
                 return instance.attribute + '\'s method'
 
             def field_calc(self, values: dict, **kwargs) -> str:
-                return values['write_only_static'] + ' calc'
+                return values['static'] + ' calc'
 
             def field_set_static(self, static: dict, **kwargs):
                 return static['set']
@@ -41,7 +39,7 @@ class CsvTest(TestCase):
         for_write = DefaultUseCsv.for_write(queryset=queryset)
         self.assertListEqual(
             for_write.get_headers(),
-            ['write only static', 'static', 'insert static', 'attribute', 'method']
+            ['static', 'insert static', 'attribute', 'method']
         )
         for_write.set_static_column('insert_static', 'inserted')
 
@@ -49,9 +47,9 @@ class CsvTest(TestCase):
             with self.subTest(i):
                 attr = f'attribute {i}'
                 self.assertListEqual(
-                    row, ['', 'static', 'inserted', attr, f'{attr}\'s method'])
+                    row, ['static', 'inserted', attr, f'{attr}\'s method'])
 
-        table = [[f'{x}_{y}' for x in range(5)] for y in range(3)]
+        table = [[f'{x}_{y}' for x in range(4)] for y in range(3)]
 
         for_read = DefaultUseCsv.for_read(table=table)
         for_read.set_static('set', 'set static')
@@ -59,19 +57,16 @@ class CsvTest(TestCase):
 
         for y, row_values in enumerate(for_read.get_as_dict()):
             with self.subTest(y):
-                # WriteOnlyStaticColumn returns a value from a row.
-                self.assertEqual(row_values['write_only_static'], f'0_{y}')
-                # StaticColumn always returns a static value.
-                self.assertEqual(row_values['static'], 'static')
-                self.assertEqual(row_values['insert_static'], 'inserted')
-                # AttributeColumn and MethodColumn return values from rows.
-                self.assertEqual(row_values['attribute'], f'3_{y}')
-                self.assertEqual(row_values['method'], f'4_{y}')
+                # Columns get values from table.
+                self.assertEqual(row_values['static'], f'0_{y}')
+                self.assertEqual(row_values['insert_static'], f'1_{y}')
+                self.assertEqual(row_values['attribute'], f'2_{y}')
+                self.assertEqual(row_values['method'], f'3_{y}')
 
                 # values are set from field_<key> method.
                 self.assertEqual(row_values['calc'], f'0_{y} calc')
                 self.assertEqual(row_values['set_static'], 'set static')
-                self.assertEqual(row_values['field'], f'field 4_{y} set static')
+                self.assertEqual(row_values['field'], f'field 3_{y} set static')
 
 
 class CsvMetaOptionTest(TestCase):
@@ -89,19 +84,19 @@ class CsvMetaOptionTest(TestCase):
             OverWrapIndexCsv.for_write(queryset=[])
 
         class RaiseExceptionOnlyForWriteCsv(Csv):
-            var1 = columns.StaticColumn()  # raise Error only for_read
+            var1 = columns.StaticColumn(w_index=0)  # raise Error only for_read
             var2 = columns.AttributeColumn(index=1)
             var3 = columns.MethodColumn(index=2)
 
-        try:
+        with self.assertRaises(columns.ColumnValidationError):
             RaiseExceptionOnlyForWriteCsv.for_read(table=[
                 ['', '', ''], ['', '', '']])
+
+        try:
+            RaiseExceptionOnlyForWriteCsv.for_write(queryset=[])
         except columns.ColumnValidationError:
             self.fail('`RaiseExceptionOnlyForWriteCsv` raise'
                       'ColumnValidationError unexpectedly')
-
-        with self.assertRaises(columns.ColumnValidationError):
-            RaiseExceptionOnlyForWriteCsv.for_write(queryset=[])
 
         class RaiseExceptionCsv(Csv):
             var1 = columns.StaticColumn(index=0)
@@ -325,3 +320,83 @@ class CsvMetaOptionTest(TestCase):
         row = for_write.get_table(header=False)[0]
         self.assertEqual(len(row), 3)
         self.assertListEqual(row, ['0', '1', '3'])
+
+    def test_attr_name_and_method_suffix(self):
+        @dataclasses.dataclass
+        class TestData:
+            pk: int
+            name: str
+
+        class NotSetAttrName(Csv):
+            pk = columns.AttributeColumn()
+            name = columns.AttributeColumn()
+
+            class Meta:
+                auto_assign = True
+
+            def column_pk(self, instance: TestData, **kwargs) -> str:
+                return f'fixed: {instance.pk}'
+
+        data = [TestData(pk=pk, name=f'name {pk}') for pk in range(10)]
+
+        for_write = NotSetAttrName.for_write(queryset=data)
+        table = for_write.get_table()
+        self.assertListEqual(['pk', 'name'], table[0])
+        for obj, row in zip(data, table[1:]):
+            self.assertListEqual([f'fixed: {obj.pk}', f'name {obj.pk}'], row)
+
+        class SetAttrName(Csv):
+            pk = columns.AttributeColumn()
+            primary_key = columns.AttributeColumn(attr_name='pk')
+            data_name = columns.AttributeColumn(attr_name='name')
+
+            class Meta:
+                auto_assign = True
+
+            def column_pk(self, instance: TestData, **kwargs) -> str:
+                # this method fix both pk and primary_key values.
+                return f'pk: {instance.pk}'
+
+            def column_primary_key(self, instance: TestData, **kwargs) -> str:
+                # this method does not called.
+                raise ValueError('`column_primary_key` should not be called')
+
+            def column_data_name(self, instance: TestData, **kwargs) -> str:
+                raise ValueError('`column_data_name` should not be called')
+
+        for_write = SetAttrName.for_write(queryset=data)
+        table = for_write.get_table()
+        self.assertListEqual(['pk', 'primary_key', 'data_name'], table[0])
+        for obj, row in zip(data, table[1:]):
+            self.assertListEqual(
+                [f'pk: {obj.pk}', f'pk: {obj.pk}', f'name {obj.pk}'],
+                row
+            )
+
+        class SetMethodSuffix(Csv):
+            pk = columns.MethodColumn()
+            primary_key = columns.MethodColumn(method_suffix='primary_key')
+            data_name = columns.MethodColumn(method_suffix='data_name')
+
+            class Meta:
+                auto_assign = True
+
+            def column_pk(self, instance: TestData, **kwargs) -> str:
+                # this method fix both pk and primary_key values.
+                return f'pk: {instance.pk}'
+
+            def column_primary_key(self, instance: TestData, **kwargs) -> str:
+                # this method does not called.
+                return f'primary_key: {instance.pk}'
+
+            def column_data_name(self, instance: TestData, **kwargs) -> str:
+                return f'data_name: {instance.name}'
+
+        for_write = SetMethodSuffix.for_write(queryset=data)
+        table = for_write.get_table()
+        self.assertListEqual(['pk', 'primary_key', 'data_name'], table[0])
+        for obj, row in zip(data, table[1:]):
+            self.assertListEqual(
+                [f'pk: {obj.pk}', f'primary_key: {obj.pk}', f'data_name: name {obj.pk}'],  # NOQA
+                row
+            )

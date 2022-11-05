@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from datetime import datetime, date
 from django.db import models
 from django.utils import timezone
@@ -29,6 +30,7 @@ class CsvOptions:
         'write_mode',
         'datetime_format',
         'date_format',
+        'tzinfo',
         'show_true',
         'show_false',
         'as_true',
@@ -75,7 +77,7 @@ class CsvOptions:
 
         self.columns = []
         for name, column in columns.copy().items():
-            column.name = column.attr_name or name
+            column.name = name
             self.columns.append(column)
 
         if self.auto_assign:
@@ -161,7 +163,7 @@ class CsvOptions:
         for_read: if True, return columns which are for read.
         read_value: if True, return columns whose `read_value` is True.
         is_static: if True, return columns which are static columns.
-        is_relation: if True, return columns which are columns for a related model.
+        is_relation: if True, return columns which are columns for a relation model.
         original: use this param with `r_index` or `w_index.` if true, return
                   only columns which have original r or w indexes.
                   original index is index defined by user, not automatically assigned.
@@ -389,9 +391,7 @@ class BaseMetaclass(type):
         # meta クラスを対応
         attrs['_meta'] = mcs.option_class(
             meta=mcs.__get_meta(attrs.get('Meta'), bases),
-            columns=dict(
-                mcs.__concat_columns(bases=bases, attrs=attrs).items()
-            ),
+            columns=mcs.__concat_columns(bases=bases, attrs=attrs),
             parts=mcs.__concat_parts(bases=bases, attrs=attrs),
             **mcs._get_option_kwargs(name, bases, attrs),
         )
@@ -404,10 +404,10 @@ class BaseMetaclass(type):
 
     @classmethod
     def __concat_columns(mcs, bases: tuple, attrs: dict) -> dict:
-        col_dict = {}
-        for attr_name, attr in attrs.items():
-            if isinstance(attr, BaseColumn):
-                col_dict.update({attr_name: attr})
+        col_dict = OrderedDict(
+            (attr_name, attr) for attr_name, attr in attrs.items()
+            if isinstance(attr, BaseColumn)
+        )
 
         for base in reversed(bases):
             if hasattr(base, '_meta'):
@@ -437,6 +437,7 @@ class BaseMetaclass(type):
         )
 
         for _meta in metas:
+            # model and fields are removed if parent classes have them.
             for attr in mcs.option_class.APPLY_ONLY_MAIN_META:
                 if hasattr(_meta, attr):
                     delattr(_meta, attr)

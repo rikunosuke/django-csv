@@ -11,7 +11,7 @@ class PartCreateMixin:
         class MetaForPart:
             as_part = True
 
-        return type(f'{cls.__name__}Part', (BasePart, cls), {'Meta': MetaForPart})(
+        return type(f'{cls.__name__}Part', (cls, BasePart), {'Meta': MetaForPart})(
             field_name=field_name,  callback=callback)
 
 

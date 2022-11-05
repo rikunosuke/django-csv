@@ -10,11 +10,5 @@ ExcelReaderClass = Union[Type[readers.XlsReader], Type[readers.XlsxReader]]
 ExcelWriter = Union[writers.XlsxWriter, writers.XlsxWriter]
 ExcelWriterClass = Union[Type[writers.XlsxWriter], Type[writers.XlsxWriter]]
 
-# Column Class hints
-StaticColumn = Union[columns.StaticColumn, columns.WriteOnlyStaticColumn]
-StaticColumnClass = Union[
-    Type[columns.StaticColumn], Type[columns.WriteOnlyStaticColumn]
-]
-
 ForeignColumn = Union[columns.BaseForeignColumn]
 ForeignColumnClass = Union[Type[columns.BaseForeignColumn]]

@@ -6,7 +6,7 @@ from django.db import models
 
 from django_csv import writers
 from django_csv.columns import ForeignAttributeColumn, ForeignMethodColumn, \
-    ForeignStaticColumn, BaseForeignColumn, ForeignWriteOnlyStaticColumn
+    ForeignStaticColumn, BaseForeignColumn
 
 READ_PREFIX = 'field_'
 WRITE_PREFIX = 'column_'
@@ -91,15 +91,13 @@ class RowForRead:
         CSV から値を取り出して {field 名: 値} の辞書型を渡す
         Relation は返さない
         """
-        values = {}
-        for column in self._meta.get_columns(
-                for_read=True, is_relation=is_relation):
-            values.update({
-                column.name: self._meta.convert_from_str(
-                    column.get_value_for_read(row=row),
-                    to=column.to
-                )
-            })
+        values = {
+            col.value_name: self._meta.convert_from_str(
+                col.get_value_for_read(row=row), to=col.to
+            ) for col in self._meta.get_columns(
+                for_read=True, is_relation=is_relation
+            )
+        }
 
         return self.apply_method_change(values)
 
@@ -119,18 +117,12 @@ class ModelRowForRead(RowForRead):
         """
         Model にないフィールドの値を取り除く
         """
-        cleaned_values = {}
-        for key, value in values.items():
-            if key in self.field_names:
-                cleaned_values.update({key: value})
-        return cleaned_values
+        fields = self._meta.model._meta.get_fields()
 
-    @property
-    def field_names(self) -> list:
-        """
-        Model の存在するフィールド名のリスト
-        """
-        return [field.name for field in self._meta.model._meta.get_fields()]
+        return {
+            k: v for k, v in values.items()
+            if k in [f.name for f in fields] or k.endswith('_id')
+        }
 
 
 class CsvForRead(RowForRead, TableForRead):
@@ -168,7 +160,7 @@ class RowForWrite:
         のクラス変数名を列名にする
         """
         return self._render_row({
-            column.get_w_index(): getattr(column, 'header', column.name)
+            column.get_w_index(): column.header
             for column in self._meta.get_columns(for_write=True)
         })
 
@@ -177,8 +169,8 @@ class RowForWrite:
         return {w_index: value}
         """
         def __get_row_from_column(_column):
-            method_name = WRITE_PREFIX + _column.name
-            if hasattr(self, method_name):
+            method_name = WRITE_PREFIX + _column.method_suffix
+            if not _column.is_static and hasattr(self, method_name):
                 _value = getattr(self, method_name)(
                     instance=instance, static=self._static.copy()
                 )
@@ -311,8 +303,9 @@ class PartForRead(ModelRowForRead):
     def get_instance(self, row: List[str], static: dict) -> models.Model:
         self._static = static.copy()  # inject static from main csv.
 
-        values = super().read_from_row(row, is_relation=True)
-        values = super().field(values=values)
+        values = self.field(
+            values=self.read_from_row(row, is_relation=True)
+        )
         return self._callback(values=values)
 
     def get_or_create_object(self, values: dict) -> models.Model:
@@ -324,23 +317,16 @@ class PartForRead(ModelRowForRead):
     def get_object(self, values: dict) -> models.Model:
         return self.model.objects.get(values)
 
-    @property
-    def field_names(self) -> list:
-        """
-        Model の存在するフィールド名のリスト
-        """
-        return [field.name for field in self.model._meta.get_fields()]
-
 
 class PartForWrite(RowForWrite):
     def get_row_value(self, instance, is_relation: bool = False
                       ) -> Dict[int, str]:
         # get foreign model.
-        related_instance = getattr(instance, self.field_name)
-        if not isinstance(related_instance, self.model):
+        relation_instance = getattr(instance, self.field_name)
+        if not isinstance(relation_instance, self.model):
             raise ValueError(f'Wrong field name. `{self.field_name}` is not '
                              f'{self.model.__class__.__name__}.')
-        return super().get_row_value(related_instance, is_relation=is_relation)
+        return super().get_row_value(relation_instance, is_relation=is_relation)
 
 
 class BasePart(PartForWrite, PartForRead):
@@ -356,7 +342,6 @@ class BasePart(PartForWrite, PartForRead):
 
         self.model = self._meta.model
         self.field_name = field_name
-        self.insert_blank_column = getattr(self._meta, 'insert_blank_column', True)  # for write.
         self._static = {}
 
         if isinstance(callback, str):
@@ -366,25 +351,23 @@ class BasePart(PartForWrite, PartForRead):
         else:
             raise ValueError('`callback` must be str or callable.')
 
-        # Don't call super().__init__ because not to run column validations.
+        # Don't call super().__init__ cos column validations should not run.
 
-    def _add_column(self, column_class: Type[BaseForeignColumn], attr_name: str,
-                    **kwargs) -> BaseForeignColumn:
-        column = column_class(
-            field_name=self.field_name,  attr_name=attr_name, **kwargs)
+    def _add_column(self, column_class: Type[BaseForeignColumn], **kwargs
+                    ) -> BaseForeignColumn:
+        column = column_class(field_name=self.field_name,  **kwargs)
         self._meta.columns.append(column)
         return column
 
     # Use UpperCamel case.
     # e.g. prt.AttributeColumn()
     def AttributeColumn(self, attr_name: str, **kwargs):
-        return self._add_column(ForeignAttributeColumn, attr_name, **kwargs)
+        # attr_name is required
+        return self._add_column(
+            ForeignAttributeColumn, attr_name=attr_name, **kwargs)
 
-    def MethodColumn(self, attr_name, **kwargs):
-        return self._add_column(ForeignMethodColumn, attr_name, **kwargs)
+    def MethodColumn(self, **kwargs):
+        return self._add_column(ForeignMethodColumn, **kwargs)
 
-    def StaticColumn(self, attr_name, **kwargs):
-        return self._add_column(ForeignStaticColumn, attr_name, **kwargs)
-
-    def WriteOnlyStaticColumn(self, attr_name, **kwargs):
-        return self._add_column(ForeignWriteOnlyStaticColumn, attr_name, **kwargs)
+    def StaticColumn(self, **kwargs):
+        return self._add_column(ForeignStaticColumn, **kwargs)
