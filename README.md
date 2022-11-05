@@ -22,7 +22,7 @@ class BookCsv(ModelCsv):
 
         
 # Create list or dict from queryset
-book_csv = BookCsv.for_write(queryset=Book.objects.all())
+book_csv = BookCsv.for_write(instances=Book.objects.all())
 book_csv.get_table(header=True)
 >> [['title', 'price', 'is_on_sale', 'description'], ['Book title', '540', 'YES', 'description']]
 book_csv.get_as_dict()
@@ -136,7 +136,7 @@ class BookDownloadView(generic.View):
     # you can keep your view simpler.
     def post(self, **kwargs):
         # call as write mode.
-        book_csv = BookCsv.for_write(queryset=Book.objects.all())
+        book_csv = BookCsv.for_write(instances=Book.objects.all())
         # you can insert value after construct ModelCsv.
         book_csv.set_static_column('csv_output_date', timezone.now().date())
         # define filename and file type. Other choices are TsvWriter, ExcelWriter ...

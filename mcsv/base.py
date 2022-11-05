@@ -213,8 +213,8 @@ class RowForWrite:
 
 
 class CsvForWrite(RowForWrite):
-    def __init__(self, queryset):
-        self.queryset = queryset
+    def __init__(self, instances):
+        self.instances = instances
         self.run_column_validation()
 
     def get_response(self, writer: writers.Writer, header: bool = True):
@@ -228,7 +228,7 @@ class CsvForWrite(RowForWrite):
         table = [self.get_headers()] if header else []
         table += [
             self._render_row(self.get_row_value(instance=instance))
-            for instance in self.queryset
+            for instance in self.instances
         ]
 
         return table
@@ -290,7 +290,7 @@ class BaseCsv:
         )(table=table)
 
     @classmethod
-    def for_write(cls, queryset) -> BaseCsvType:
+    def for_write(cls, instances) -> BaseCsvType:
         """
         CSV 書き込みようのインスタンスを返す
         """
@@ -300,7 +300,7 @@ class BaseCsv:
         return type(
             f'{cls.__name__}ForWrite', (cls, cls.write_class),
             {'_meta': cls._meta}
-        )(queryset=queryset)
+        )(instances=instances)
 
 
 class PartForRead(ModelRowForRead):

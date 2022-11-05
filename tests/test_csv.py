@@ -35,8 +35,8 @@ class CsvTest(TestCase):
                 values['field'] = f'field {values["method"]} {static["set"]}'
                 return values
 
-        queryset = [TestClass(attribute=f'attribute {i}') for i in range(3)]
-        for_write = DefaultUseCsv.for_write(queryset=queryset)
+        instances = [TestClass(attribute=f'attribute {i}') for i in range(3)]
+        for_write = DefaultUseCsv.for_write(instances=instances)
         self.assertListEqual(
             for_write.get_headers(),
             ['static', 'insert static', 'attribute', 'method']
@@ -81,7 +81,7 @@ class CsvMetaOptionTest(TestCase):
             OverWrapIndexCsv.for_read(table=[[]])
 
         with self.assertRaises(ValueError):
-            OverWrapIndexCsv.for_write(queryset=[])
+            OverWrapIndexCsv.for_write(instances=[])
 
         class RaiseExceptionOnlyForWriteCsv(Csv):
             var1 = columns.StaticColumn(w_index=0)  # raise Error only for_read
@@ -93,7 +93,7 @@ class CsvMetaOptionTest(TestCase):
                 ['', '', ''], ['', '', '']])
 
         try:
-            RaiseExceptionOnlyForWriteCsv.for_write(queryset=[])
+            RaiseExceptionOnlyForWriteCsv.for_write(instances=[])
         except columns.ColumnValidationError:
             self.fail('`RaiseExceptionOnlyForWriteCsv` raise'
                       'ColumnValidationError unexpectedly')
@@ -104,7 +104,7 @@ class CsvMetaOptionTest(TestCase):
             var3 = columns.MethodColumn(index=2)
 
         with self.assertRaises(columns.ColumnValidationError):
-            RaiseExceptionCsv.for_write(queryset=[])
+            RaiseExceptionCsv.for_write(instances=[])
 
         with self.assertRaises(columns.ColumnValidationError):
             RaiseExceptionCsv.for_read(table=[
@@ -115,7 +115,7 @@ class CsvMetaOptionTest(TestCase):
                 auto_assign = True
 
         try:
-            AutoAssignCsv.for_write(queryset=[])
+            AutoAssignCsv.for_write(instances=[])
         except columns.ColumnValidationError:
             self.fail('`AutoAssignCsv` raise'
                       'ColumnValidationError unexpectedly')
@@ -145,7 +145,7 @@ class CsvMetaOptionTest(TestCase):
             self.fail('`ReadOnlyCsv` raise `ReadModeIsProhibited` unexpectedly')
 
         with self.assertRaises(ReadOnlyCsv.WriteModeIsProhibited):
-            ReadOnlyCsv.for_write(queryset=[])
+            ReadOnlyCsv.for_write(instances=[])
 
         class WriteOnlyCsv(Csv):
             static = columns.StaticColumn()
@@ -161,7 +161,7 @@ class CsvMetaOptionTest(TestCase):
             WriteOnlyCsv.for_read(table=[[i for i in range(3)] for _ in range(5)])
 
         try:
-            WriteOnlyCsv.for_write(queryset=[])
+            WriteOnlyCsv.for_write(instances=[])
         except WriteOnlyCsv.WriteModeIsProhibited:
             self.fail('`WriteOnlyCsv` raises `WriteModeIsProhibited` unexpectedly')
 
@@ -178,7 +178,7 @@ class CsvMetaOptionTest(TestCase):
                       '`ReadModeIsProhibited` unexpectedly')
 
         try:
-            OverrideReadOnlyCsv.for_write(queryset=[])
+            OverrideReadOnlyCsv.for_write(instances=[])
         except OverrideReadOnlyCsv.WriteModeIsProhibited:
             self.fail('`OverrideReadOnlyCsv` raise '
                       '`WriteModeIsProhibited` unexpectedly')
@@ -194,7 +194,7 @@ class CsvMetaOptionTest(TestCase):
                       '`ReadModeIsProhibited` unexpectedly')
 
         try:
-            OverrideWriteOnlyCsv.for_write(queryset=[])
+            OverrideWriteOnlyCsv.for_write(instances=[])
         except OverrideWriteOnlyCsv.WriteModeIsProhibited:
             self.fail('`OverrideWriteOnlyCsv` raises '
                       '`WriteModeIsProhibited` unexpectedly')
@@ -212,7 +212,7 @@ class CsvMetaOptionTest(TestCase):
                       '`ReadModeIsProhibited` unexpectedly')
 
         try:
-            ReadAndWriteCsv.for_write(queryset=[])
+            ReadAndWriteCsv.for_write(instances=[])
         except ReadAndWriteCsv.WriteModeIsProhibited:
             self.fail('`ReadAndWriteCsv` raises '
                       '`WriteModeIsProhibited` unexpectedly')
@@ -250,7 +250,7 @@ class CsvMetaOptionTest(TestCase):
         values = list(boolean_for_read.get_as_dict())[0]
         self.assertDictEqual(values, expected_result_for_read)
 
-        boolean_for_write = DefaultConvertCsv.for_write(queryset=[1])
+        boolean_for_write = DefaultConvertCsv.for_write(instances=[1])
         row = boolean_for_write.get_table(header=False)[0]
         self.assertListEqual(row, input_row)
 
@@ -282,7 +282,7 @@ class CsvMetaOptionTest(TestCase):
         values = list(boolean_for_read.get_as_dict())[0]
         self.assertDictEqual(values, expected_result_for_read)
 
-        boolean_for_write = ShowBooleanCsv.for_write(queryset=[1])
+        boolean_for_write = ShowBooleanCsv.for_write(instances=[1])
         row = boolean_for_write.get_table(header=False)[0]
         self.assertListEqual(
             row, ['Show False', 'Show True', '22/06/25 00:00:00', '22/06/25', 'Show False', 'Show True']
@@ -303,7 +303,7 @@ class CsvMetaOptionTest(TestCase):
             'date_': '22/06/25', 'false2': 'false', 'true2': 'true',
         })
 
-        boolean_for_write = OverrideShowBooleanCsv.for_write(queryset=[1])
+        boolean_for_write = OverrideShowBooleanCsv.for_write(instances=[1])
         row = boolean_for_write.get_table(header=False)[0]
         self.assertListEqual(row, [
             'False', 'True', '2022-06-25 00:00:00+09:00', '2022-06-25', 'False', 'True'
@@ -315,7 +315,7 @@ class CsvMetaOptionTest(TestCase):
             one = columns.StaticColumn(static_value=1, index=1)
             three = columns.StaticColumn(static_value=3, index=3)
 
-        for_write = NotPaddingCsv.for_write(queryset=[1])
+        for_write = NotPaddingCsv.for_write(instances=[1])
         row = for_write.get_table(header=False)[0]
         self.assertEqual(len(row), 4)
         self.assertListEqual(row, ['0', '1', '', '3'])
@@ -324,7 +324,7 @@ class CsvMetaOptionTest(TestCase):
             class Meta:
                 insert_blank_column = False
 
-        for_write = PaddingCsv.for_write(queryset=[1])
+        for_write = PaddingCsv.for_write(instances=[1])
         row = for_write.get_table(header=False)[0]
         self.assertEqual(len(row), 3)
         self.assertListEqual(row, ['0', '1', '3'])
@@ -347,7 +347,7 @@ class CsvMetaOptionTest(TestCase):
 
         data = [TestData(pk=pk, name=f'name {pk}') for pk in range(10)]
 
-        for_write = NotSetAttrName.for_write(queryset=data)
+        for_write = NotSetAttrName.for_write(instances=data)
         table = for_write.get_table()
         self.assertListEqual(['pk', 'name'], table[0])
         for obj, row in zip(data, table[1:]):
@@ -372,7 +372,7 @@ class CsvMetaOptionTest(TestCase):
             def column_data_name(self, instance: TestData, **kwargs) -> str:
                 raise ValueError('`column_data_name` should not be called')
 
-        for_write = SetAttrName.for_write(queryset=data)
+        for_write = SetAttrName.for_write(instances=data)
         table = for_write.get_table()
         self.assertListEqual(['pk', 'primary_key', 'data_name'], table[0])
         for obj, row in zip(data, table[1:]):
@@ -400,7 +400,7 @@ class CsvMetaOptionTest(TestCase):
             def column_data_name(self, instance: TestData, **kwargs) -> str:
                 return f'data_name: {instance.name}'
 
-        for_write = SetMethodSuffix.for_write(queryset=data)
+        for_write = SetMethodSuffix.for_write(instances=data)
         table = for_write.get_table()
         self.assertListEqual(['pk', 'primary_key', 'data_name'], table[0])
         for obj, row in zip(data, table[1:]):

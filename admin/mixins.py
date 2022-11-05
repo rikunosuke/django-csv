@@ -15,22 +15,22 @@ class ModelCsvAdminMixin:
 
     @admin.action(description='download (.csv)')
     def download_csv(self, request, queryset):
-        mcsv = self.csv_class.for_write(queryset=queryset)
+        mcsv = self.csv_class.for_write(instances=queryset)
         return mcsv.get_response(CsvWriter(filename=f'{self.file_name}.csv'))
 
     @admin.action(description='download (.tsv)')
     def download_tsv(self, request, queryset):
-        mcsv = self.csv_class.for_write(queryset=queryset)
+        mcsv = self.csv_class.for_write(instances=queryset)
         return mcsv.get_response(TsvWriter(filename=f'{self.file_name}.tsv'))
 
     @admin.action(description='download (.xlsx)')
     def download_xlsx(self, request, queryset):
-        mcsv = self.csv_class.for_write(queryset=queryset)
+        mcsv = self.csv_class.for_write(instances=queryset)
         return mcsv.get_response(XlsxWriter(filename=f'{self.file_name}.xlsx'))
 
     @admin.action(description='download (.xls)')
     def download_xls(self, request, queryset):
-        mcsv = self.csv_class.for_write(queryset=queryset)
+        mcsv = self.csv_class.for_write(instances=queryset)
         return mcsv.get_response(XlsWriter(filename=f'{self.file_name}.xls'))
 
     def get_urlname(self, suffix: str) -> str:
