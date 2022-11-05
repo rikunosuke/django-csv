@@ -2,7 +2,7 @@ from collections import OrderedDict
 from datetime import datetime, date
 from django.db import models
 from django.utils import timezone
-from typing import Optional, Dict, Iterable, List, Any, Type
+from typing import Optional, Dict, Iterable, List, Any
 
 import copy
 
@@ -322,16 +322,18 @@ class ModelOptions(CsvOptions):
     )
 
     def __init__(self, meta: Optional[type], columns: Dict[str, BaseColumn],
-                 parts: List['Part'], model: Type[models.Model] = None):
-        self.model = model
+                 parts: List['Part']):
+        if meta is None:
+            raise ValueError('class `Meta` is required in `ModelCsv`')
+
+        if not hasattr(meta, 'model'):
+            raise ValueError('`model` is required in class `Meta.`')
+
+        self.model = meta.model
 
         if getattr(meta, 'as_part', False):
             # ModelCsvOptions of Part Class only has own relation columns.
             super().__init__(meta, {}, parts)
-            return
-
-        if not hasattr(meta, 'model'):
-            super().__init__(meta, columns, parts)
             return
 
         # auto create AttributeColumns for fields.
@@ -389,18 +391,14 @@ class BaseMetaclass(type):
             return super().__new__(mcs, name, bases, attrs)
 
         # meta クラスを対応
-        attrs['_meta'] = mcs.option_class(
-            meta=mcs.__get_meta(attrs.get('Meta'), bases),
-            columns=mcs.__concat_columns(bases=bases, attrs=attrs),
-            parts=mcs.__concat_parts(bases=bases, attrs=attrs),
-            **mcs._get_option_kwargs(name, bases, attrs),
-        )
+        if '_meta' not in attrs:
+            attrs['_meta'] = mcs.option_class(
+                meta=attrs.get('Meta'),
+                columns=mcs.__concat_columns(bases=bases, attrs=attrs),
+                parts=mcs.__concat_parts(bases=bases, attrs=attrs),
+            )
 
         return super().__new__(mcs, name, bases, attrs)
-
-    @classmethod
-    def _get_option_kwargs(mcs, name: str, bases: tuple, attrs: dict) -> dict:
-        return {}
 
     @classmethod
     def __concat_columns(mcs, bases: tuple, attrs: dict) -> dict:
@@ -418,33 +416,15 @@ class BaseMetaclass(type):
 
     @classmethod
     def __concat_parts(mcs, bases: tuple, attrs: dict) -> list:
-        parts = []
-        for attr in attrs.values():
-            if isinstance(attr, BasePart):
-                parts.append(attr)
+        parts = [
+            attr for attr in attrs.values() if isinstance(attr, BasePart)
+        ]
 
         for base in bases:
             if hasattr(base, '_meta'):
                 parts.extend([part for part in base._meta.parts])
 
         return parts
-
-    @classmethod
-    def __get_meta(mcs, meta: Optional[type], bases: tuple) -> type:
-        metas = list(
-            copy.deepcopy(getattr(base, 'Meta'))
-            for base in bases if hasattr(base, 'Meta')
-        )
-
-        for _meta in metas:
-            # model and fields are removed if parent classes have them.
-            for attr in mcs.option_class.APPLY_ONLY_MAIN_META:
-                if hasattr(_meta, attr):
-                    delattr(_meta, attr)
-        if meta:
-            metas.insert(0, meta)
-
-        return type('Meta', tuple(metas), {})
 
 
 class CsvMetaclass(BaseMetaclass):
@@ -453,15 +433,3 @@ class CsvMetaclass(BaseMetaclass):
 
 class ModelCsvMetaclass(BaseMetaclass):
     option_class = ModelOptions
-
-    @classmethod
-    def _get_option_kwargs(mcs, name: str, bases: tuple, attrs: dict) -> dict:
-        if not (model := getattr(attrs.get('Meta'), 'model', None)):
-            for base in bases:
-                if not (meta := getattr(base, '_meta', None)):
-                    continue
-
-                if model := getattr(meta, 'model', None):
-                    break
-
-        return {'model': model}

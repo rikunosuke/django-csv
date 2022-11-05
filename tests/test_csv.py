@@ -166,7 +166,9 @@ class CsvMetaOptionTest(TestCase):
             self.fail('`WriteOnlyCsv` raises `WriteModeIsProhibited` unexpectedly')
 
         class OverrideReadOnlyCsv(ReadOnlyCsv):
-            pass
+            """
+            if override Csv or ModelCsv, Meta class is reset.
+            """
 
         try:
             OverrideReadOnlyCsv.for_read(
@@ -175,15 +177,21 @@ class CsvMetaOptionTest(TestCase):
             self.fail('`OverrideReadOnlyCsv` raise '
                       '`ReadModeIsProhibited` unexpectedly')
 
-        with self.assertRaises(OverrideReadOnlyCsv.WriteModeIsProhibited):
+        try:
             OverrideReadOnlyCsv.for_write(queryset=[])
+        except OverrideReadOnlyCsv.WriteModeIsProhibited:
+            self.fail('`OverrideReadOnlyCsv` raise '
+                      '`WriteModeIsProhibited` unexpectedly')
 
         class OverrideWriteOnlyCsv(WriteOnlyCsv):
             pass
 
-        with self.assertRaises(OverrideWriteOnlyCsv.ReadModeIsProhibited):
+        try:
             OverrideWriteOnlyCsv.for_read(
                 table=[[i for i in range(3)] for _ in range(5)])
+        except OverrideWriteOnlyCsv.ReadModeIsProhibited:
+            self.fail('`OverrideWriteOnlyCsv` raise '
+                      '`ReadModeIsProhibited` unexpectedly')
 
         try:
             OverrideWriteOnlyCsv.for_write(queryset=[])

@@ -284,8 +284,10 @@ class BaseCsv:
         if not cls._meta.read_mode:
             raise cls.ReadModeIsProhibited('Read Mode is prohibited')
 
-        return type(f'{cls.__name__}ForRead', (cls, cls.read_class), {}
-                    )(table=table)
+        return type(
+            f'{cls.__name__}ForRead', (cls, cls.read_class),
+            {'_meta': cls._meta}
+        )(table=table)
 
     @classmethod
     def for_write(cls, queryset) -> BaseCsvType:
@@ -295,8 +297,10 @@ class BaseCsv:
         if not cls._meta.write_mode:
             raise cls.WriteModeIsProhibited('Write Mode is prohibited')
 
-        return type(f'{cls.__name__}ForWrite', (cls, cls.write_class), {}
-                    )(queryset=queryset)
+        return type(
+            f'{cls.__name__}ForWrite', (cls, cls.write_class),
+            {'_meta': cls._meta}
+        )(queryset=queryset)
 
 
 class PartForRead(ModelRowForRead):
