@@ -1,7 +1,7 @@
 import os
 from unittest import TestCase
 
-from django_csv import readers
+from ..model_csv import readers
 
 TEST_DATA_DIR = os.path.dirname(__file__) + '/test_data'
 

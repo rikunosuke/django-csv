@@ -1,5 +1,5 @@
-from django_csv.mcsv.base import BaseCsv, CsvForRead, ModelCsvForRead, BasePart
-from django_csv.mcsv.metaclasses import CsvMetaclass, ModelCsvMetaclass
+from .base import BaseCsv, CsvForRead, ModelCsvForRead, BasePart
+from .metaclasses import CsvMetaclass, ModelCsvMetaclass
 
 
 class Csv(BaseCsv, metaclass=CsvMetaclass):

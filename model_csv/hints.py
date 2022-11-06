@@ -1,6 +1,6 @@
 from typing import Union, Type
 
-from django_csv import readers, writers, columns
+from . import writers, columns, readers
 
 # Reader Class hints
 ExcelReader = Union[readers.XlsReader, readers.XlsxReader]

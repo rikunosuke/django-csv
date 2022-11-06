@@ -1,11 +1,11 @@
 import inspect
-from typing import Generator, Any, List, Dict, TypeVar, Type, Union, Callable, \
+from typing import Generator, Any, List, Dict, TypeVar, Type, Union, Callable,\
     Optional
 
 from django.db import models
 
-from django_csv import writers
-from django_csv.columns import ForeignAttributeColumn, ForeignMethodColumn, \
+from .. import writers
+from ..columns import ForeignAttributeColumn, ForeignMethodColumn,\
     ForeignStaticColumn, BaseForeignColumn
 
 READ_PREFIX = 'field_'
@@ -36,7 +36,7 @@ class TableForRead:
 
     def get_as_dict(self) -> Generator:
         """
-        CSV から作成した Model
+        return generator of dict {'value_name': value, ...}
         """
         for row in self.table:
             values = self.read_from_row(row)
@@ -47,10 +47,9 @@ class RowForRead:
     """
     A class to read values from each row.
     1. get value from csv. Call Column.get_value_for_read() method.
-    2. apply `field_*` method change. The passed values are row value got in
-       1st step.
-    3. apply `field` method. The passed values are fixed value modified in
-       2nd step.
+    2. change type of value from str to `column.to` type.
+    3. apply `field_*` method change.
+    4. apply `field` method change.
     """
 
     def field(self, values: dict, **kwargs):
@@ -106,16 +105,16 @@ class ModelRowForRead(RowForRead):
     def read_from_row(self, row: List[str], is_relation: bool = False
                       ) -> Dict[str, Any]:
         values = super().read_from_row(row, is_relation)
-        for part in self._meta.parts:
-            values[part.field_name] = part.get_instance(
-                row=row, static=self._static.copy())
-
-        values = self.remove_extra_values(values)
+        values.update({
+            prt.field_name: prt.get_instance(
+                row=row, static=self._static.copy()
+            ) for prt in self._meta.parts
+        })
         return values
 
     def remove_extra_values(self, values: dict) -> dict:
         """
-        Model にないフィールドの値を取り除く
+        remove values which is not in
         """
         fields = self._meta.model._meta.get_fields()
 
@@ -135,31 +134,25 @@ class ModelCsvForRead(ModelRowForRead, TableForRead):
         CSV から作成した Model のインスタンスを返すジェネレーター
         """
         for values in self.get_as_dict():
+            values = self.remove_extra_values(values)
             yield self._meta.model(**values)
 
     def bulk_create(self, batch_size=100) -> None:
-        """
-        CSV から作成した Model を DB に保存する
-        batch_size: 一度にジェネレーターから作成するインスタンスの最大値
-        """
-        models = []
         instances = list(self.get_instances())
-        length = len(instances)
-        for i, instance in enumerate(instances, 1):
-            models.append(instance)
-            if len(models) % batch_size == 0 or i == length:
-                self._meta.model.objects.bulk_create(models)
-                models = []
+        offset = 0
+
+        while True:
+            created = instances[offset:offset + batch_size]
+            if not created:
+                break
+
+            self._meta.model.objects.bulk_create(created)
+            offset += batch_size
 
 
 class RowForWrite:
     def get_headers(self) -> List[str]:
-        """
-        ヘッダーの情報を {列の順番: 列名} の辞書型で返す
-        Column に header が定義されていない場合は Column
-        のクラス変数名を列名にする
-        """
-        return self._render_row({
+        return self.render_row({
             column.get_w_index(): column.header
             for column in self._meta.get_columns(for_write=True)
         })
@@ -191,7 +184,7 @@ class RowForWrite:
 
         return row
 
-    def _render_row(self, maps: Dict[int, Any]) -> List[str]:
+    def render_row(self, maps: Dict[int, Any]) -> List[str]:
         """
         convert maps from dict to list ordered by index.
         maps: {index: value}
@@ -221,13 +214,13 @@ class CsvForWrite(RowForWrite):
         writer.write_down(table=self.get_table(header=header))
         return writer.make_response()
 
-    def get_table(self, header: bool = True):
+    def get_table(self, header: bool = True) -> list[list]:
         """
-        ヘッダー情報と Model インスタンスから作成した値を2次元のリストで返す
+        2D list created from instances.
         """
         table = [self.get_headers()] if header else []
         table += [
-            self._render_row(self.get_row_value(instance=instance))
+            self.render_row(self.get_row_value(instance=instance))
             for instance in self.instances
         ]
 
@@ -310,6 +303,7 @@ class PartForRead(ModelRowForRead):
         values = self.field(
             values=self.read_from_row(row, is_relation=True)
         )
+        values = self.remove_extra_values(values)
         return self._callback(values=values)
 
     def get_or_create_object(self, values: dict) -> models.Model:

@@ -6,8 +6,8 @@ from typing import Optional, Dict, Iterable, List, Any
 
 import copy
 
-from django_csv.columns import BaseColumn, AttributeColumn
-from django_csv.mcsv.base import BasePart
+from .base import BasePart
+from ..columns import BaseColumn, AttributeColumn
 
 
 class CsvOptions:

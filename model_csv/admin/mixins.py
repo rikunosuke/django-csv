@@ -3,9 +3,9 @@ from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse, path
 
-from django_csv import ModelCsv
-from django_csv.admin.forms import UploadForm
-from django_csv.writers import TsvWriter, CsvWriter, XlsxWriter, XlsWriter
+from ..csv import ModelCsv
+from ..writers import TsvWriter, CsvWriter, XlsxWriter, XlsWriter
+from .forms import UploadForm
 
 
 class ModelCsvAdminMixin:

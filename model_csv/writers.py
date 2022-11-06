@@ -10,14 +10,14 @@ from typing import Optional
 
 class Writer:
     content_type = 'text/csv'
-    extenstion = 'csv'
+    extension = 'csv'
 
     def __init__(self, filename: str, encoding: str = 'utf-8') -> None:
         self.filename = filename if filename.endswith(
-            self.extenstion) else f'{filename}.{self.extenstion}'
+            self.extension) else f'{filename}.{self.extension}'
         if len(self.filename.split('.')) != 2:
-            raise ValueError(f'{filename} may have unexpected extenstion. '
-                             f'`.{self.extenstion}` is expected.')
+            raise ValueError(f'{filename} may have unexpected extension. '
+                             f'`.{self.extension}` is expected.')
         self.encoding = encoding
 
     def make_response(self, **kwargs) -> HttpResponse:
@@ -58,13 +58,13 @@ class CsvMixin:
 
 class CsvWriter(CsvMixin, Writer):
     delimiter = ','
-    extenstion = 'csv'
+    extension = 'csv'
     content_type = 'text/csv'
 
 
 class TsvWriter(CsvMixin, Writer):
     delimiter = '\t'
-    extenstion = 'tsv'
+    extension = 'tsv'
     content_type = 'text/tsv'
 
 
@@ -80,7 +80,7 @@ class ExcelMixin:
 
 
 class XlsWriter(ExcelMixin, Writer):
-    extenstion = 'xls'
+    extension = 'xls'
 
     def __init__(self, *args, **kwargs):
         self.wb = xlwt.Workbook()
@@ -110,7 +110,7 @@ class XlsWriter(ExcelMixin, Writer):
 
 
 class XlsxWriter(ExcelMixin, Writer):
-    extenstion = 'xlsx'
+    extension = 'xlsx'
 
     def __init__(self, *args, **kwargs):
         self.wb = Workbook()

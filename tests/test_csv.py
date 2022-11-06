@@ -3,8 +3,8 @@ from datetime import datetime, date
 from django.utils import timezone
 from unittest import TestCase
 
-from django_csv import columns
-from django_csv.mcsv import Csv
+from ..model_csv import columns
+from ..model_csv import Csv
 
 
 class CsvTest(TestCase):

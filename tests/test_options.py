@@ -1,8 +1,8 @@
 #  flake8: NOQA
 from unittest import TestCase
 
-from django_csv.columns import StaticColumn, MethodColumn, ColumnValidationError
-from django_csv.mcsv.metaclasses import CsvOptions
+from ..model_csv.columns import StaticColumn, MethodColumn, ColumnValidationError
+from ..model_csv.csv.metaclasses import CsvOptions
 
 
 class OptionsTest(TestCase):
