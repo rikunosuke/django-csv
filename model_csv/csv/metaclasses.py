@@ -38,12 +38,8 @@ class CsvOptions:
         'auto_convert',
         'auto_assign',
         'insert_blank_column',
-        'default_if_none'
+        'default_if_none',
     )
-
-    APPLY_ONLY_MAIN_META = tuple()
-
-    APPLY_ONLY_LAST_META = tuple()
 
     class UnknownAttribute(Exception):
         pass
@@ -305,19 +301,10 @@ def get_type_from_model_field(field: models.Field):
 
 
 class ModelOptions(CsvOptions):
-    APPLY_ONLY_MAIN_META = CsvOptions.APPLY_ONLY_MAIN_META + (
-        'model',
-        'fields',
-    )
-
-    APPLY_ONLY_LAST_META = CsvOptions.APPLY_ONLY_LAST_META + (
-        'as_part',
-        'auto_assign',
-    )
-
     ALLOWED_META_ATTR = CsvOptions.ALLOWED_META_ATTR + (
         'model',
         'fields',
+        'headers',
         'as_part',
     )
 
@@ -371,11 +358,17 @@ class ModelOptions(CsvOptions):
         )
 
         for r, w, f in zip(unassigned_r, unassigned_w, fields):
-            header = getattr(f, 'verbose_name', f.name)
+            header = meta.headers.get(f.name) if hasattr(meta,
+                                                         'headers') else None
+            if not header:
+                header = getattr(f, 'verbose_name', f.name)
+
             to = get_type_from_model_field(f)
 
             columns.update({
-                f.name: AttributeColumn(r_index=r, w_index=w, header=header, to=to)
+                f.name: AttributeColumn(
+                    r_index=r, w_index=w, header=header, to=to
+                )
             })
 
         super().__init__(meta, columns, parts)
