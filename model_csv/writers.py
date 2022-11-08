@@ -2,9 +2,7 @@ import csv
 import io
 
 import urllib
-import xlwt
 from django.http import HttpResponse
-from openpyxl import Workbook
 from typing import Optional
 
 
@@ -83,6 +81,7 @@ class XlsWriter(ExcelMixin, Writer):
     extension = 'xls'
 
     def __init__(self, *args, **kwargs):
+        import xlwt
         self.wb = xlwt.Workbook()
         self.sheet_names = []
         super().__init__(*args, **kwargs)
@@ -113,6 +112,7 @@ class XlsxWriter(ExcelMixin, Writer):
     extension = 'xlsx'
 
     def __init__(self, *args, **kwargs):
+        from openpyxl import Workbook
         self.wb = Workbook()
         # delete default sheet
         self.wb.remove(self.wb.active)
