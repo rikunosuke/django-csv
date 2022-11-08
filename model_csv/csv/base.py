@@ -15,11 +15,15 @@ WRITE_PREFIX = 'column_'
 class TableForRead:
     def __init__(self, table: List[list]) -> None:
         self.table = table
-        self.run_column_validation()
+        self.validate()
 
-    def run_column_validation(self):
+    def validate(self):
         for col in self._meta.get_columns():
             col.validate_for_read()
+
+        if not self._meta.get_columns(for_read=True):
+            raise ValueError(
+                f'{self.__class__.__name__} needs at least one column')
 
         indexes = self._meta.get_r_indexes()
         if len(indexes) != len(set(indexes)):
@@ -208,7 +212,7 @@ class RowForWrite:
 class CsvForWrite(RowForWrite):
     def __init__(self, instances):
         self.instances = instances
-        self.run_column_validation()
+        self.validate()
 
     def get_response(self, writer: writers.Writer, header: bool = True):
         writer.write_down(table=self.get_table(header=header))
@@ -226,9 +230,14 @@ class CsvForWrite(RowForWrite):
 
         return table
 
-    def run_column_validation(self):
-        for col in self._meta.get_columns():
+    def validate(self):
+        for col in  self._meta.get_columns():
             col.validate_for_write()
+
+        if not self._meta.get_columns(for_write=True):
+            raise ValueError(
+                f'{self.__class__.__name__} needs at least one column'
+            )
 
         index = self._meta.get_w_indexes()
         if len(index) != len(set(index)):

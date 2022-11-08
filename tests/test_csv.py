@@ -71,6 +71,14 @@ class CsvTest(TestCase):
 
 class CsvMetaOptionTest(TestCase):
     def test_csv_validation(self):
+        class NoColumnCsv(Csv):
+            pass
+
+        with self.assertRaises(ValueError):
+            NoColumnCsv.for_read(table=[[0]])
+
+        with self.assertRaises(ValueError):
+            NoColumnCsv.for_write(instances=[0])
 
         class OverWrapIndexCsv(Csv):
             var1 = columns.StaticColumn(index=0)
