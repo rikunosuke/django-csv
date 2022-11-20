@@ -493,3 +493,133 @@ class CsvMetaOptionTest(TestCase):
         for tdata, d in zip(data, mcsv.get_as_dict()):
             with self.subTest():
                 self.assertDictEqual(dataclasses.asdict(tdata), d)
+
+    def test_convert(self):
+        @dataclasses.dataclass
+        class Data:
+            integer: int
+            string: str = dataclasses.field(init=False)
+            boolean: bool = dataclasses.field(init=False)
+            float_: float = dataclasses.field(init=False)
+            date_: date = dataclasses.field(init=False)
+            date_time: datetime = dataclasses.field(init=False)
+
+            def __post_init__(self):
+                self.string = f'string {self.integer}'
+                self.boolean = bool(self.integer % 2)
+                self.float_ = self.integer + self.integer / 10
+                self.date_time = timezone.now() + timedelta(days=self.integer)
+                self.date_ = self.date_time.date()
+
+        class ConvertCsv(Csv):
+            string = columns.AttributeColumn(to=str)
+            boolean = columns.AttributeColumn(to=bool)
+            integer = columns.AttributeColumn(to=int)
+            float_ = columns.AttributeColumn(to=float)
+            date_ = columns.AttributeColumn(to=date)
+            date_time = columns.AttributeColumn(to=datetime)
+
+            class Meta:
+                auto_assign = True
+                show_true = 'Yes'
+                show_false = 'No'
+
+        data = [Data(integer=i) for i in range(10)]
+        mcsv = ConvertCsv.for_write(instances=data)
+        now = timezone.now()
+        for i, row in enumerate(mcsv.get_table(header=False)):
+            with self.subTest(f'row={i}'):
+                self.assertEqual(f'string {i}', row[0])
+                self.assertEqual('Yes' if i % 2 else 'No', row[1])
+                self.assertEqual(str(i), row[2])
+                self.assertEqual(str(i + i / 10), row[3])
+                dt = (now + timedelta(days=i)).astimezone(mcsv._meta.tzinfo)
+                self.assertEqual(
+                    dt.date().strftime(mcsv._meta.date_format), row[4])
+                self.assertEqual(
+                    dt.strftime(mcsv._meta.datetime_format), row[5])
+
+        class ConvertMethodCsv(Csv):
+            class Meta:
+                auto_assign = True
+
+            @columns.as_column(to=str)
+            def integer(self, instance: Data, **kwargs) -> str:
+                return str(instance.integer)
+
+            @columns.as_column(to=float)
+            def float_(self, instance: Data, **kwargs) -> str:
+                return f'{instance.integer}.{instance.integer}'
+
+            @columns.as_column(to=date)
+            def date_(self, instance: Data, **kwargs) -> str:
+                # to=date but return string.
+                # Csv does not raise ValueError and just write down the value.
+                return f'Day {instance.integer}'
+
+        mcsv = ConvertMethodCsv.for_write(instances=data)
+        try:
+            for i, row in enumerate(mcsv.get_table(header=False)):
+                self.assertEqual(str(i), row[0])
+                self.assertEqual(f'{i}.{i}', row[1])
+                self.assertEqual(f'Day {i}', row[2])
+
+        except ValueError:
+            self.fail('method return string and ValueError raised unexpectedly')
+
+        # test if ModelCsv cannot convert value to string.
+        class ReturnNoneCsv(ConvertCsv):
+            class Meta:
+                return_none_if_convert_fail = True
+                auto_assign = True
+                show_true = 'Yes'
+                show_false = 'No'
+
+        valid_value = ['string 0', 'Yes', '0', '0.0', '2022-10-22', '2022-10-22 10:00:00']  # NOQA
+        # boolean is invalid value.
+        invalid_bool = valid_value.copy()
+        invalid_bool[1] = 'INVALID BOOL VALUE'
+        mcsv = ConvertCsv.for_read(table=[invalid_bool])
+
+        with self.assertRaises(ValueError):
+            list(mcsv.get_as_dict())
+
+        mcsv = ReturnNoneCsv.for_read(table=[invalid_bool])
+        try:
+            d = list(mcsv.get_as_dict())[0]
+            self.assertIsNone(d['boolean'])
+        except ValueError as e:
+            self.fail('ValueError raised unexpectedly:' + str(e))
+
+
+        invalid_integer_and_float = valid_value.copy()
+        invalid_integer_and_float[2] = 'INVALID INTEGER'
+        invalid_integer_and_float[3] = 'INVALID FLOAT'
+        mcsv = ConvertCsv.for_read(table=[invalid_integer_and_float])
+
+        with self.assertRaises(ValueError):
+            list(mcsv.get_as_dict())
+
+        mcsv = ReturnNoneCsv.for_read(table=[invalid_integer_and_float])
+        try:
+            d = list(mcsv.get_as_dict())[0]
+            self.assertIsNone(d['integer'])
+            self.assertIsNone(d['float_'])
+        except ValueError as e:
+            self.fail('ValueError raised unexpectedly:' + str(e))
+
+        invalid_date_time = valid_value.copy()
+        invalid_date_time[4] = 'INVALID DATE'
+        invalid_date_time[5] = 'INVALID DATETIME'
+        mcsv = ConvertCsv.for_read(table=[invalid_date_time])
+
+        with self.assertRaises(ValueError):
+            list(mcsv.get_as_dict())
+
+        mcsv = ReturnNoneCsv.for_read(table=[invalid_date_time])
+        try:
+            d = list(mcsv.get_as_dict())[0]
+            self.assertIsNone(d['date_'])
+            self.assertIsNone(d['date_time'])
+        except ValueError as e:
+            self.fail('ValueError raised unexpectedly:' + str(e))
