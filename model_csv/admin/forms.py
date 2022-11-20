@@ -14,7 +14,7 @@ class UploadForm(forms.Form):
     file = forms.FileField(
         required=True,
         help_text=(
-            ' '.join([extenstion.upper() for extenstion in READER.keys()]) +
+            ' '.join([extension.upper() for extension in READER.keys()]) +
             ' are available.'
         )
     )
@@ -22,11 +22,11 @@ class UploadForm(forms.Form):
     def clean(self):
         cleaned_data = super().clean()
         file = cleaned_data['file']
-        extenstion = file.name.split('.')[-1]
+        extension = file.name.split('.')[-1]
 
         try:
-            cleaned_data['reader'] = READER[extenstion.lower()]
+            cleaned_data['reader'] = READER[extension.lower()]
         except KeyError:
-            raise forms.ValidationError(f'`{extenstion}` is not supported')
+            raise forms.ValidationError(f'`{extension}` is not supported')
 
         return cleaned_data

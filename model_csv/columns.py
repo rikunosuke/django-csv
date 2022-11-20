@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Callable
 
 
 class NoHeaderError(Exception):
@@ -53,6 +53,7 @@ class ReadColumnMixin:
 class BaseColumn(ReadColumnMixin, WriteColumnMixin):
     is_static = False
     is_relation = False
+    has_callback = False
 
     def __init__(self, *, header: str = '', index: Optional[int] = None,
                  r_index: Optional[int] = None, w_index: Optional[int] = None,
@@ -136,10 +137,7 @@ class BaseColumn(ReadColumnMixin, WriteColumnMixin):
         """
         Dict key of a value. This dict is passed to special method `field_*`
         """
-        if self._value_name:
-            return self._value_name
-
-        return self.name
+        return self._value_name or self.name
 
 
 class MethodColumn(BaseColumn):
@@ -148,7 +146,39 @@ class MethodColumn(BaseColumn):
     write value dynamically by using column_*.
     read -> get value from a cell.
     write -> return '' as default. Fix value by using column_*.
+    e.g)
+    class Book(Csv):
+       v = MethodField(...)
+
+       def column_v(self, **kwargs) -> str:
+           return 'SHOW THIS VALUE'
     """
+
+
+def as_column(*, header: str = '', index: Optional[int] = None,
+                       r_index: Optional[int] = None,
+                       w_index: Optional[int] = None,
+                       read_value: bool = True, write_value: bool = True,
+                       value_name: str = '', to: Any = str):
+
+    class DecoratorColumn(BaseColumn):
+        has_callback = True
+
+        def __init__(self, callback: Callable, *args, **kwargs):
+            self.callback = callback
+            super().__init__(*args, **kwargs)
+
+    def wrapper(function: Callable):
+        column = DecoratorColumn(callback=function, header=header, index=index,
+                                 r_index=r_index, w_index=w_index,
+                                 read_value=read_value,
+                                 write_value=write_value,
+                                 value_name=value_name, to=to)
+
+        return column
+
+    return wrapper
+
 
 
 class AttributeColumn(BaseColumn):

@@ -20,39 +20,41 @@ from model_csv import ModelCsv
 class BookCsv(ModelCsv):
     class Meta:
         model = Book
-        # if you defined fields then ModelCsv create columns automatically.
+        # if you declare fields then ModelCsv create columns automatically.
         fields = '__all__'
 ```
 
-## 2.1 create django-response with csv file
+## 2.1 create a django-response
 ```python3
 # create 2d list of model values from queryset
 mcsv = BookCsv.for_write(instances=Book.objects.all())
 mcsv.get_table(header=True)
 [['title', 'price', 'is_on_sale', 'description'], ['Book title', '540', 'YES', 'description']]
+
 # choose file type. (CsvWriter, TsvWriter, XlsxWriter)
 from model_csv.writers import CsvWriter
 writer = CsvWriter(file_name='book')
+
 # make response
 mcsv.get_response(writer=writer)
 ```
 
-## 2.2 create model from csv file.
+## 2.2 create models from csv file.
 ```python3
-# choose file type. (CsvReader, TsvReader, XlsxReader, XlsReader)
+# choose a file type. (CsvReader, TsvReader, XlsxReader, XlsReader)
 from mcsv.readers import CsvReader
 
-# create django model from csv file.
+# create models from csv file.
 with open('book.csv', 'r') as f:
-    reader = CsvReader(file=f,table_starts_from=1)
+    reader = CsvReader(file=f, table_starts_from=1)
     table = reader.get_table()
 mcsv = BookCsv.for_read(table=table)
 
-# get value as dict
+# get values as dict
 mcsv.get_as_dict()  # list of dict
 [{'title': 'Book title', 'price': 540, 'is_on_sale': True, 'description': 'description'}, ...]
 
-# get instances (unsaved)
+# get instances (unsaved django model)
 instances = list(mcsv.get_instances())
 
 # bulk create django model
@@ -81,7 +83,7 @@ class BookUploadView(generic.View):
 ```
 
 ## model-csv is a Class-Based Csv Manager.
-ModelCsv can define header, column order and type of value by Column class.
+Column class can define header, an order of columns and a type of value.
 And You can define, validate and fix values in ModelCsv methods.
 Therefore, you don't have to write spaghetti code in django view anymore.
 
@@ -191,12 +193,105 @@ class BookDownloadView(generic.View):
         return mcsv.get_response(writer=writer)
 ```
 
-
 ## Columns
 
+There are 3 types of columns and 1 decorator.
+
 ### AttributeColumn
-get value from 
+Write down an attribute value
+```python
+class BookCsv(ModelCsv):
+    title = columns.AttributeColumn(header='Book Title', index=0)
+    
+    class Meta:
+        model = Book
+```
+Then, `AttributeColumn` returns `book.title` when create csv file.
+
+If set `attr_name` then `AttributeColumn` changes an attribute it refers to.
+```python
+class BookCsv(ModelCsv):
+    title = columns.AttributeColumn(header='Book Title', index=0)
+    official_title = columns.AttributeColumn(
+        header='Book Title', attr_name='title', index=1)
+    
+    class Meta:
+        model = Book
+```
 
 ### MethodColumn
+Write down a value which is returned by a method
+```python
+class BookCsv(ModelCsv):
+    full_title = columns.MethodColumn(header='Title', index=0)
+
+    class Meta:
+        model = Book
+
+    def column_full_title(self, instance: Book, **kwargs) -> str:
+        return f'{instance.title} {instance.subtitle}'
+```
+
+ModelCsv search methods named `column_<name>` and write down the return values.
+
+### @as_column
+@as_column decorator returns a column which works like MethodColumn.
+```python
+class BookCsv(ModelCsv):
+
+    @columns.as_column(header='Title', index=0)
+    def full_title(self, instance: Book, **kwargs) -> str:
+        return f'{instance.title} {instance.subtitle}'
+```
 
 ### StaticColumn
+StaticColumn simply returns a static value. 
+```python
+class BookCsv(ModelCsv):
+    check = columns.StaticColumn(header='Check Box')
+    title = columns.AttributeColumn(header='Title')
+    ...
+    phone_number = columns.StaticColumn(header='Phone Number',
+                                        static_value='+81 080-0000-0000')
+    class Meta:
+        model = Book
+        auto_assign = True
+```
+
+## Meta class of ModelCsv
+
+```python
+class BookCsv(ModelCsv):
+    class Meta:
+        model = Book  # django model
+        # automatically assign indexes to columns
+        auto_assign = True
+
+        # prohibit to use as read or write mode. 
+        read_mode = False  # raise Error if .for_read is called
+        write_mode = True
+
+        # Convert datetime to str or str to datetime.
+        # Column(to=datetime) and auto_convert=True
+        datetime_format = '%Y-%m-%d %H:%M:%S'
+        date_format = '%Y-%m-%d'
+        tzinfo = timezone.utc
+
+        # convert bool to str.
+        # Column(to=bool) and auto_convert=True
+        show_true = 'yes'
+        show_false = 'no'
+        
+        # understand values as bool if the value in list.
+        # Column(to=bool) and auto_convert=True
+        as_true = ['yes', 'Yes']
+        as_false = ['no', 'No']
+
+        auto_convert = True
+
+        # The value ModelCsv write down if the value is None 
+        default_if_none = ''
+        
+        # if indexes are not sequence, insert blank columns.
+        insert_blank_column = True
+```

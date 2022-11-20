@@ -1,4 +1,5 @@
 import inspect
+import itertools
 from typing import Generator, Any, List, Dict, TypeVar, Type, Union, Callable,\
     Optional
 
@@ -42,7 +43,7 @@ class TableForRead:
         """
         return generator of dict {'value_name': value, ...}
         """
-        for row in self.table:
+        for row in self.table.copy():
             values = self.read_from_row(row)
             yield self.field(values=values, static=self._static.copy())
 
@@ -109,16 +110,16 @@ class ModelRowForRead(RowForRead):
     def read_from_row(self, row: List[str], is_relation: bool = False
                       ) -> Dict[str, Any]:
         values = super().read_from_row(row, is_relation)
-        values.update({
+        values |= {
             prt.field_name: prt.get_instance(
                 row=row, static=self._static.copy()
             ) for prt in self._meta.parts
-        })
+        }
         return values
 
     def remove_extra_values(self, values: dict) -> dict:
         """
-        remove values which is not in
+        remove values which is not in fields
         """
         fields = self._meta.model._meta.get_fields()
 
@@ -134,24 +135,19 @@ class CsvForRead(RowForRead, TableForRead):
 
 class ModelCsvForRead(ModelRowForRead, TableForRead):
     def get_instances(self) -> Generator:
-        """
-        CSV から作成した Model のインスタンスを返すジェネレーター
-        """
         for values in self.get_as_dict():
             values = self.remove_extra_values(values)
             yield self._meta.model(**values)
 
     def bulk_create(self, batch_size=100) -> None:
-        instances = list(self.get_instances())
-        offset = 0
+        iterator = self.get_instances()
 
         while True:
-            created = instances[offset:offset + batch_size]
+            created = list(itertools.islice(iterator, batch_size))
             if not created:
                 break
 
             self._meta.model.objects.bulk_create(created)
-            offset += batch_size
 
 
 class RowForWrite:
@@ -161,13 +157,20 @@ class RowForWrite:
             for column in self._meta.get_columns(for_write=True)
         })
 
+    def get_header(self, name: str) -> str:
+        return self._meta.get_header(name=name)
+
     def get_row_value(self, instance, is_relation: bool = False) -> Dict[int, str]:
         """
         return {w_index: value}
         """
         def __get_row_from_column(_column):
             method_name = WRITE_PREFIX + _column.method_suffix
-            if not _column.is_static and hasattr(self, method_name):
+            if _column.has_callback:
+                _value = _column.callback(
+                    self, instance=instance, static=self._static.copy()
+                )
+            elif not _column.is_static and hasattr(self, method_name):
                 _value = getattr(self, method_name)(
                     instance=instance, static=self._static.copy()
                 )
@@ -184,7 +187,7 @@ class RowForWrite:
         }
 
         for part in self._meta.parts:
-            row.update(part.get_row_value(instance, is_relation=True))
+            row |= part.get_row_value(instance, is_relation=True)
 
         return row
 

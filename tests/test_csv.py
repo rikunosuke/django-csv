@@ -1,5 +1,5 @@
 import dataclasses
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from django.utils import timezone
 from unittest import TestCase
 
@@ -416,3 +416,80 @@ class CsvMetaOptionTest(TestCase):
                 [f'pk: {obj.pk}', f'primary_key: {obj.pk}', f'data_name: name {obj.pk}'],  # NOQA
                 row
             )
+
+    def test_decorator(self):
+        @dataclasses.dataclass
+        class TestData:
+            first: int
+            second: str
+            third: date
+            fourth: bool
+
+        class MethodColumnCsv(Csv):
+            first = columns.MethodColumn(header='first', to=int)
+            second = columns.MethodColumn(header='second')
+            third = columns.MethodColumn(header='third', to=date)
+            fourth = columns.MethodColumn(header='fourth', to=bool)
+
+            class Meta:
+                auto_assign = True
+
+            def column_first(self, instance: TestData, **kwargs):
+                return f'First {instance.first}'
+
+            def column_second(self, instance: TestData, **kwargs):
+                return f'Second {instance.second}'
+
+            def column_third(self, instance: TestData, **kwargs):
+                return f'Third {instance.third}'
+
+            def column_fourth(self, instance: TestData, **kwargs):
+                return f'Fourth {instance.fourth}'
+
+        class DecoratorColumnCsv(Csv):
+            PREFIX_FIRST = 'First'
+            PREFIX_SECOND = 'Second'
+            PREFIX_THIRD = 'Third'
+            PREFIX_FOURTH = 'Fourth'
+
+            class Meta:
+                auto_assign = True
+
+            @columns.as_column(header='first', to=int)
+            def first(self, instance: TestData, **kwargs):
+                return f'{self.PREFIX_FIRST} {instance.first}'
+
+            @columns.as_column(header='second')
+            def second(self, instance: TestData, **kwargs):
+                return f'{self.PREFIX_SECOND} {instance.second}'
+
+            @columns.as_column(header='third', to=date)
+            def third(self, instance: TestData, **kwargs):
+                return f'{self.PREFIX_THIRD} {instance.third}'
+
+            @columns.as_column(header='fourth', to=bool)
+            def fourth(self, instance: TestData, **kwargs):
+                return f'{self.PREFIX_FOURTH} {instance.fourth}'
+
+        today = datetime.now().date()
+        data = [TestData(first=i,
+                         second=f'str {i}', third=today + timedelta(i),
+                         fourth=bool(i % 2)) for i in range(10)]
+
+        mth = MethodColumnCsv.for_write(instances=data)
+        deco = DecoratorColumnCsv.for_write(instances=data)
+
+        for i, (m_row, d_row) in enumerate(zip(mth.get_table(), deco.get_table())):
+            with self.subTest(f'row={i}'):
+                self.assertListEqual(m_row, d_row)
+
+        table = [
+            [
+                str(i), f'str {i}', str(today + timedelta(i)),
+                'Yes' if i % 2 else 'No'
+            ] for i in range(10)
+        ]
+        mcsv = DecoratorColumnCsv.for_read(table=table)
+        for tdata, d in zip(data, mcsv.get_as_dict()):
+            with self.subTest():
+                self.assertDictEqual(dataclasses.asdict(tdata), d)

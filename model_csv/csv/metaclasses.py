@@ -21,6 +21,7 @@ class CsvOptions:
     as_true: Iterable = ['yes', 'Yes']
     as_false: Iterable = ['no', 'No']
     auto_convert = True
+    return_none_if_convert_fail = False
     auto_assign = False
     insert_blank_column: bool = True
     default_if_none = ''
@@ -36,6 +37,7 @@ class CsvOptions:
         'as_true',
         'as_false',
         'auto_convert',
+        'return_none_if_convert_fail',
         'auto_assign',
         'insert_blank_column',
         'default_if_none',
@@ -87,16 +89,26 @@ class CsvOptions:
             return value
 
         if to == int:
+            if value in (self.default_if_none, ''):
+                return None
             try:
                 return int(value)
             except ValueError:
-                return None
+                if self.return_none_if_convert_fail:
+                    return None
+                else:
+                    raise
 
         if to == float:
+            if value in (self.default_if_none, ''):
+                return None
             try:
                 return float(value)
             except ValueError:
-                return None
+                if self.return_none_if_convert_fail:
+                    return None
+                else:
+                    raise
 
         if to == bool:
             if value in self.as_true:
@@ -105,7 +117,11 @@ class CsvOptions:
             elif value in self.as_false:
                 return False
             else:
-                return None
+                if self.return_none_if_convert_fail:
+                    return None
+                else:
+                    raise ValueError(
+                        f'`{value}` is not in both `as_true` and `as_false`')
 
         if to in (date, datetime):
             try:
@@ -120,13 +136,16 @@ class CsvOptions:
 
             try:
                 return datetime.strptime(value, self.date_format).date()
-            except (ValueError, TypeError):
-                return None
+            except ValueError:
+                if self.return_none_if_convert_fail:
+                    return None
+                else:
+                    raise
 
         return value
 
     def convert_to_str(self, value: Any, to: Any) -> str:
-        if not self.auto_convert or to == str:
+        if not self.auto_convert or to == str or isinstance(value, str):
             return str(value)
 
         if value is None:
@@ -136,12 +155,17 @@ class CsvOptions:
             return self.show_true if value else self.show_false
 
         if to == datetime:
+            if not isinstance(value, datetime):
+                raise ValueError(f'`{value}` is not a datetime instance')
+
             if self.tzinfo:
                 value = value.astimezone(self.tzinfo)
 
             return value.strftime(self.datetime_format)
 
         elif to == date:
+            if not isinstance(value, date):
+                raise ValueError(f'`{value}` is not a date instance')
             return value.strftime(self.date_format)
 
         return str(value)
@@ -254,6 +278,9 @@ class CsvOptions:
                 return col
         else:
             raise self.UnknownColumn(f'UnknownColumn `{name}`')
+
+    def get_header(self, name: str) -> str:
+        return self.get_column(name).header
 
     def assign_number(self) -> None:
         """
