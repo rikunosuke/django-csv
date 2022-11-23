@@ -1,34 +1,118 @@
+import dataclasses
 import inspect
 import itertools
-from typing import Generator, Any, List, Dict, TypeVar, Type, Union, Callable,\
-    Optional
+from typing import Generator, Any, TypeVar, Type, Union, Callable, Optional, \
+    MutableMapping
 
 from django.db import models
 
 from .. import writers
-from ..columns import ForeignAttributeColumn, ForeignMethodColumn,\
-    ForeignStaticColumn, BaseForeignColumn
+from ..columns import ForeignAttributeColumn, ForeignMethodColumn, \
+    ForeignStaticColumn, BaseForeignColumn, ColumnValidationError
 
 READ_PREFIX = 'field_'
 WRITE_PREFIX = 'column_'
 
 
+@dataclasses.dataclass
+class ErrorMessage:
+    message: str
+    name: str | None = None
+
+    @property
+    def is_none_field_error(self) -> bool:
+        """True if error is raised in `field` method"""
+        return self.name is None
+
+
+class Row(MutableMapping):
+    def __init__(self, number: int, errors: list, values: dict):
+        self.number = number
+        self.errors: list[ErrorMessage] = errors
+        self._values = values
+
+    def __repr__(self) -> str:
+        return f'Row(number={self.number})'
+
+    __str__ = __repr__
+
+    def __getitem__(self, key):
+        return self._values[key]
+
+    def __delitem__(self, key):
+        del self._values[key]
+
+    def __iter__(self):
+        if self.is_valid:
+            return iter(self._values)
+        return {}
+
+    def __len__(self):
+        return len(self._values)
+
+    def __setitem__(self, key, value):
+        self._values[key] = value
+
+    def __add__(self, other) -> 'Row':
+        if not isinstance(other, Row):
+            raise ValueError(
+                f'unsupported operation type \'Row\' and '
+                f'\'{other.__class__.__name__}\''
+            )
+        if other.number != self.number:
+            raise ValueError(
+                'Cannot join Rows each has a different number: '
+                f'{self} and {other})'
+            )
+        values = self._values | other._values
+        self.errors.extend(getattr(other, 'errors'))
+        return Row(number=self.number, errors=self.errors, values=values)
+
+    @property
+    def values(self) -> dict:
+        if not self.is_valid:
+            return {}
+
+        return self._values
+
+    @property
+    def is_valid(self) -> bool:
+        return len(self.errors) == 0
+
+    def clean(self, exclude: list | None = None) -> None:
+        exclude = exclude or []
+        keys = list(self._values.keys())
+        for key in keys:
+            if key not in exclude:
+                del self._values[key]
+
+
+class ValidationError(Exception):
+    pass
+
+
 class TableForRead:
-    def __init__(self, table: List[list]) -> None:
+    def __init__(self, table: list[list]) -> None:
         self.table = table
+        self._is_checked = False  # check if is_valid() called or not.
         self.validate()
 
     def validate(self):
         for col in self._meta.get_columns():
             col.validate_for_read()
 
-        if not self._meta.get_columns(for_read=True):
-            raise ValueError(
+        cols = self._meta.get_columns(for_read=True)
+        if not cols:
+            raise ColumnValidationError(
                 f'{self.__class__.__name__} needs at least one column')
+
+        value_names = [col.value_name for col in cols]
+        if len(value_names) != len(set(value_names)):
+            raise ColumnValidationError('`value_name` must be unique.')
 
         indexes = self._meta.get_r_indexes()
         if len(indexes) != len(set(indexes)):
-            raise ValueError(
+            raise ColumnValidationError(
                 '`index` must be unique. Change `index` or `r_index`')
 
         if len(self.table[0]) < max(indexes):
@@ -39,13 +123,41 @@ class TableForRead:
                 f'column number: {len(self.table[1])} < '
                 f'r_index: {max(indexes)}')
 
-    def get_as_dict(self) -> Generator:
-        """
-        return generator of dict {'value_name': value, ...}
-        """
-        for row in self.table.copy():
-            values = self.read_from_row(row)
-            yield self.field(values=values, static=self._static.copy())
+    def is_valid(self) -> bool:
+        if self._is_checked:
+            return self._is_valid
+
+        self.__cleaned_rows: list[Row] = []
+        for i, row in enumerate(self.table.copy()):
+            row_model = self.read_from_row(row, i)
+            # if row raises any ValidationError, then `field` method is not
+            # called because row.values may contain unexpected type.
+            if row_model.is_valid:
+                try:
+                    row_model.update(self.field(
+                        values=row_model.values.copy(),
+                        static=self._static.copy()
+                    ))
+                except ValidationError as e:
+                    row_model.errors.append(ErrorMessage(message=str(e)))
+            self.__cleaned_rows.append(row_model)
+
+        self._is_checked = True
+        return self._is_valid
+
+    @property
+    def _is_valid(self) -> bool:
+        return not bool(list(filter(
+                lambda r: not r.is_valid, self.__cleaned_rows
+            )))
+
+    @property
+    def cleaned_rows(self) -> list[Row]:
+        if not self._is_checked:
+            raise AttributeError('cannot access `cleaned_rows` attribute '
+                                 'before calling `is_valid()` method')
+
+        return self.__cleaned_rows
 
 
 class RowForRead:
@@ -56,6 +168,7 @@ class RowForRead:
     3. apply `field_*` method change.
     4. apply `field` method change.
     """
+    error_name_prefix = ''
 
     def field(self, values: dict, **kwargs):
         """
@@ -63,7 +176,7 @@ class RowForRead:
         """
         return values
 
-    def apply_method_change(self, values: dict) -> dict:
+    def apply_method_change(self, values: dict, number: int) -> Row:
         """
         call method named `field_<attr_name>.`
 
@@ -79,18 +192,28 @@ class RowForRead:
         """
         methods = inspect.getmembers(self, predicate=inspect.ismethod)
         updated = values.copy()
+        errors = []
         for name, mthd in methods:
             if not name.startswith(READ_PREFIX):
                 continue
 
-            field_name = name.split(READ_PREFIX)[1]
-            updated[field_name] = mthd(
-                values=values.copy(), static=self._static.copy(),
+            value_name = name.split(READ_PREFIX)[1]
+            try:
+                updated[value_name] = mthd(
+                    values=values.copy(), static=self._static.copy(),
+                )
+            except ValidationError as e:
+                errors.append(
+                    ErrorMessage(
+                        message=str(e),
+                        name=self.error_name_prefix + value_name
+                    )
             )
-        return updated
 
-    def read_from_row(self, row: List[str], is_relation: bool = False
-                      ) -> Dict[str, Any]:
+        return Row(number=number, errors=errors, values=updated)
+
+    def read_from_row(self, row: list[str], number: int,
+                      is_relation: bool = False) -> Row:
         """
         CSV から値を取り出して {field 名: 値} の辞書型を渡す
         Relation は返さない
@@ -103,19 +226,18 @@ class RowForRead:
             )
         }
 
-        return self.apply_method_change(values)
+        return self.apply_method_change(values, number)
 
 
 class ModelRowForRead(RowForRead):
-    def read_from_row(self, row: List[str], is_relation: bool = False
-                      ) -> Dict[str, Any]:
-        values = super().read_from_row(row, is_relation)
-        values |= {
-            prt.field_name: prt.get_instance(
-                row=row, static=self._static.copy()
-            ) for prt in self._meta.parts
-        }
-        return values
+    def read_from_row(self, row: list[str], number: int,
+                      is_relation: bool = False) -> Row:
+        row_model: Row = super().read_from_row(row, number, is_relation)
+        for prt in self._meta.parts:
+            row_model += prt.get_instance(
+                row=row, number=number, static=self._static.copy()
+            )
+        return row_model
 
     def remove_extra_values(self, values: dict) -> dict:
         """
@@ -134,13 +256,19 @@ class CsvForRead(RowForRead, TableForRead):
 
 
 class ModelCsvForRead(ModelRowForRead, TableForRead):
-    def get_instances(self) -> Generator:
-        for values in self.get_as_dict():
-            values = self.remove_extra_values(values)
+    def get_instances(self, only_valid: bool = False) -> Generator:
+        if not self.is_valid() and not only_valid:
+            raise ValueError('`is_valid()` method failed')
+
+        for row in self.cleaned_rows:
+            if not row.is_valid:
+                continue
+
+            values = self.remove_extra_values(row.values)
             yield self._meta.model(**values)
 
-    def bulk_create(self, batch_size=100) -> None:
-        iterator = self.get_instances()
+    def bulk_create(self, batch_size=100, only_valid: bool = False) -> None:
+        iterator = self.get_instances(only_valid=only_valid)
 
         while True:
             created = list(itertools.islice(iterator, batch_size))
@@ -151,7 +279,7 @@ class ModelCsvForRead(ModelRowForRead, TableForRead):
 
 
 class RowForWrite:
-    def get_headers(self) -> List[str]:
+    def get_headers(self) -> list[str]:
         return self.render_row({
             column.get_w_index(): column.header
             for column in self._meta.get_columns(for_write=True)
@@ -160,7 +288,7 @@ class RowForWrite:
     def get_header(self, name: str) -> str:
         return self._meta.get_header(name=name)
 
-    def get_row_value(self, instance, is_relation: bool = False) -> Dict[int, str]:
+    def get_row_value(self, instance, is_relation: bool = False) -> dict[int, str]:
         """
         return {w_index: value}
         """
@@ -191,7 +319,7 @@ class RowForWrite:
 
         return row
 
-    def render_row(self, maps: Dict[int, Any]) -> List[str]:
+    def render_row(self, maps: dict[int, Any]) -> list[str]:
         """
         convert maps from dict to list ordered by index.
         maps: {index: value}
@@ -234,17 +362,17 @@ class CsvForWrite(RowForWrite):
         return table
 
     def validate(self):
-        for col in  self._meta.get_columns():
+        for col in self._meta.get_columns():
             col.validate_for_write()
 
         if not self._meta.get_columns(for_write=True):
-            raise ValueError(
+            raise ColumnValidationError(
                 f'{self.__class__.__name__} needs at least one column'
             )
 
         index = self._meta.get_w_indexes()
         if len(index) != len(set(index)):
-            raise ValueError(
+            raise ColumnValidationError(
                 '`index` must be unique. Change `index` or `w_index`')
 
 
@@ -282,13 +410,12 @@ class BaseCsv:
         self._static.update({key: value})
 
     @classmethod
-    def for_read(cls, table: List[list]) -> BaseCsvType:
+    def for_read(cls, table: list[list]) -> BaseCsvType:
         """
         CSV 読み込みようのインスタンスを返す
         """
         if not cls._meta.read_mode:
             raise cls.ReadModeIsProhibited('Read Mode is prohibited')
-
         return type(
             f'{cls.__name__}ForRead', (cls, cls.read_class),
             {'_meta': cls._meta}
@@ -309,14 +436,28 @@ class BaseCsv:
 
 
 class PartForRead(ModelRowForRead):
-    def get_instance(self, row: List[str], static: dict) -> models.Model:
-        self._static = static.copy()  # inject static from main csv.
+    @property
+    def error_name_prefix(self):
+        return self.related_name + '__'
 
-        values = self.field(
-            values=self.read_from_row(row, is_relation=True)
-        )
-        values = self.remove_extra_values(values)
-        return self._callback(values=values)
+    def get_instance(self, row: list[str], number: int, static: dict
+                     ) -> Row:
+        self._static = static.copy()  # inject static from main csv.
+        row_model: Row = self.read_from_row(row, number, is_relation=True)
+        if row_model.is_valid:
+            try:
+                row_model.update(self.field(values=row_model.values))
+            except ValidationError as e:
+                row_model.errors.append(
+                    ErrorMessage(message=str(e))
+                )
+
+        if row_model.is_valid:
+            values = self.remove_extra_values(row_model.values)
+            row_model[self.related_name] = self._callback(values=values)
+
+        row_model.clean(exclude=[self.related_name])
+        return row_model
 
     def get_or_create_object(self, values: dict) -> models.Model:
         return self.model.objects.get_or_create(**values)[0]
@@ -330,17 +471,17 @@ class PartForRead(ModelRowForRead):
 
 class PartForWrite(RowForWrite):
     def get_row_value(self, instance, is_relation: bool = False
-                      ) -> Dict[int, str]:
+                      ) -> dict[int, str]:
         # get foreign model.
-        relation_instance = getattr(instance, self.field_name)
+        relation_instance = getattr(instance, self.related_name)
         if not isinstance(relation_instance, self.model):
-            raise ValueError(f'Wrong field name. `{self.field_name}` is not '
+            raise ValueError(f'Wrong field name. `{self.related_name}` is not '
                              f'{self.model.__class__.__name__}.')
         return super().get_row_value(relation_instance, is_relation=is_relation)
 
 
 class BasePart(PartForWrite, PartForRead):
-    def __init__(self, field_name: str,
+    def __init__(self, related_name: str,
                  callback: Union[str, Callable] = 'get_or_create_object',
                  **kwargs):
 
@@ -351,7 +492,7 @@ class BasePart(PartForWrite, PartForRead):
             )
 
         self.model = self._meta.model
-        self.field_name = field_name
+        self.related_name = related_name
         self._static = {}
 
         if isinstance(callback, str):
@@ -365,7 +506,7 @@ class BasePart(PartForWrite, PartForRead):
 
     def _add_column(self, column_class: Type[BaseForeignColumn], **kwargs
                     ) -> BaseForeignColumn:
-        column = column_class(field_name=self.field_name,  **kwargs)
+        column = column_class(related_name=self.related_name,  **kwargs)
         self._meta.columns.append(column)
         return column
 
@@ -381,3 +522,6 @@ class BasePart(PartForWrite, PartForRead):
 
     def StaticColumn(self, **kwargs):
         return self._add_column(ForeignStaticColumn, **kwargs)
+
+    def as_column(self, ):
+        pass

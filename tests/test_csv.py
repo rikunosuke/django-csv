@@ -4,7 +4,7 @@ from django.utils import timezone
 from unittest import TestCase
 
 from ..model_csv import columns
-from ..model_csv import Csv
+from ..model_csv import Csv, ValidationError
 
 
 class CsvTest(TestCase):
@@ -54,19 +54,20 @@ class CsvTest(TestCase):
         for_read = DefaultUseCsv.for_read(table=table)
         for_read.set_static('set', 'set static')
         for_read.set_static_column('insert_static', 'inserted')
+        self.assertTrue(for_read.is_valid())
 
-        for y, row_values in enumerate(for_read.get_as_dict()):
+        for y, row in enumerate(for_read.cleaned_rows):
             with self.subTest(y):
                 # Columns get values from table.
-                self.assertEqual(row_values['static'], f'0_{y}')
-                self.assertEqual(row_values['insert_static'], f'1_{y}')
-                self.assertEqual(row_values['attribute'], f'2_{y}')
-                self.assertEqual(row_values['method'], f'3_{y}')
+                self.assertEqual(row['static'], f'0_{y}')
+                self.assertEqual(row['insert_static'], f'1_{y}')
+                self.assertEqual(row['attribute'], f'2_{y}')
+                self.assertEqual(row['method'], f'3_{y}')
 
                 # values are set from field_<key> method.
-                self.assertEqual(row_values['calc'], f'0_{y} calc')
-                self.assertEqual(row_values['set_static'], 'set static')
-                self.assertEqual(row_values['field'], f'field 3_{y} set static')
+                self.assertEqual(row['calc'], f'0_{y} calc')
+                self.assertEqual(row['set_static'], 'set static')
+                self.assertEqual(row['field'], f'field 3_{y} set static')
 
 
 class CsvMetaOptionTest(TestCase):
@@ -74,10 +75,10 @@ class CsvMetaOptionTest(TestCase):
         class NoColumnCsv(Csv):
             pass
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(columns.ColumnValidationError):
             NoColumnCsv.for_read(table=[[0]])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(columns.ColumnValidationError):
             NoColumnCsv.for_write(instances=[0])
 
         class OverWrapIndexCsv(Csv):
@@ -85,10 +86,10 @@ class CsvMetaOptionTest(TestCase):
             var2 = columns.AttributeColumn(index=1)
             var3 = columns.MethodColumn(index=1)
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(columns.ColumnValidationError):
             OverWrapIndexCsv.for_read(table=[[]])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(columns.ColumnValidationError):
             OverWrapIndexCsv.for_write(instances=[])
 
         class RaiseExceptionOnlyForWriteCsv(Csv):
@@ -254,9 +255,9 @@ class CsvMetaOptionTest(TestCase):
             'date_time': datetime(2022, 6, 25, tzinfo=timezone.get_current_timezone()),
             'date_': date(2022, 6, 25),
         }
-
-        values = list(boolean_for_read.get_as_dict())[0]
-        self.assertDictEqual(values, expected_result_for_read)
+        self.assertTrue(boolean_for_read.is_valid())
+        row = list(boolean_for_read.cleaned_rows)[0]
+        self.assertDictEqual(row.values, expected_result_for_read)
 
         boolean_for_write = DefaultConvertCsv.for_write(instances=[1])
         row = boolean_for_write.get_table(header=False)[0]
@@ -287,8 +288,9 @@ class CsvMetaOptionTest(TestCase):
             table=[input_row for _ in range(5)])
 
         expected_result_for_read |= {'false2': False, 'true2': True}
-        values = list(boolean_for_read.get_as_dict())[0]
-        self.assertDictEqual(values, expected_result_for_read)
+        self.assertTrue(boolean_for_read.is_valid())
+        row = list(boolean_for_read.cleaned_rows)[0]
+        self.assertDictEqual(row.values, expected_result_for_read)
 
         boolean_for_write = ShowBooleanCsv.for_write(instances=[1])
         row = boolean_for_write.get_table(header=False)[0]
@@ -305,8 +307,9 @@ class CsvMetaOptionTest(TestCase):
 
         boolean_for_read = OverrideShowBooleanCsv.for_read(
             table=[input_row for _ in range(5)])
-        values = list(boolean_for_read.get_as_dict())[0]
-        self.assertDictEqual(values, {
+        self.assertTrue(boolean_for_read.is_valid())
+        row = list(boolean_for_read.cleaned_rows)[0]
+        self.assertDictEqual(row.values, {
             'false': 'False', 'true': 'True', 'date_time': '22/06/25 00:00:00',
             'date_': '22/06/25', 'false2': 'false', 'true2': 'true',
         })
@@ -490,9 +493,10 @@ class CsvMetaOptionTest(TestCase):
             ] for i in range(10)
         ]
         mcsv = DecoratorColumnCsv.for_read(table=table)
-        for tdata, d in zip(data, mcsv.get_as_dict()):
+        self.assertTrue(mcsv.is_valid())
+        for tdata, row in zip(data, mcsv.cleaned_rows):
             with self.subTest():
-                self.assertDictEqual(dataclasses.asdict(tdata), d)
+                self.assertDictEqual(dataclasses.asdict(tdata), row.values)
 
     def test_convert(self):
         @dataclasses.dataclass
@@ -582,15 +586,15 @@ class CsvMetaOptionTest(TestCase):
         mcsv = ConvertCsv.for_read(table=[invalid_bool])
 
         with self.assertRaises(ValueError):
-            list(mcsv.get_as_dict())
+            mcsv.is_valid()
 
         mcsv = ReturnNoneCsv.for_read(table=[invalid_bool])
+        self.assertTrue(mcsv.is_valid())
         try:
-            d = list(mcsv.get_as_dict())[0]
-            self.assertIsNone(d['boolean'])
+            row = list(mcsv.cleaned_rows)[0]
+            self.assertIsNone(row['boolean'])
         except ValueError as e:
             self.fail('ValueError raised unexpectedly:' + str(e))
-
 
         invalid_integer_and_float = valid_value.copy()
         invalid_integer_and_float[2] = 'INVALID INTEGER'
@@ -598,13 +602,14 @@ class CsvMetaOptionTest(TestCase):
         mcsv = ConvertCsv.for_read(table=[invalid_integer_and_float])
 
         with self.assertRaises(ValueError):
-            list(mcsv.get_as_dict())
+            mcsv.is_valid()
 
         mcsv = ReturnNoneCsv.for_read(table=[invalid_integer_and_float])
+        self.assertTrue(mcsv.is_valid())
         try:
-            d = list(mcsv.get_as_dict())[0]
-            self.assertIsNone(d['integer'])
-            self.assertIsNone(d['float_'])
+            row = list(mcsv.cleaned_rows)[0]
+            self.assertIsNone(row['integer'])
+            self.assertIsNone(row['float_'])
         except ValueError as e:
             self.fail('ValueError raised unexpectedly:' + str(e))
 
@@ -614,12 +619,81 @@ class CsvMetaOptionTest(TestCase):
         mcsv = ConvertCsv.for_read(table=[invalid_date_time])
 
         with self.assertRaises(ValueError):
-            list(mcsv.get_as_dict())
+            mcsv.is_valid()
 
         mcsv = ReturnNoneCsv.for_read(table=[invalid_date_time])
+        self.assertTrue(mcsv.is_valid())
         try:
-            d = list(mcsv.get_as_dict())[0]
-            self.assertIsNone(d['date_'])
-            self.assertIsNone(d['date_time'])
+            row = list(mcsv.cleaned_rows)[0]
+            self.assertIsNone(row['date_'])
+            self.assertIsNone(row['date_time'])
         except ValueError as e:
             self.fail('ValueError raised unexpectedly:' + str(e))
+
+    def test_validation(self):
+        class ValidationCsv(Csv):
+            string = columns.AttributeColumn(index=0)
+            integer = columns.AttributeColumn(index=1, to=int)
+
+            def field_string(self, values: dict, **kwargs) -> str:
+                if int(values['string']) % 3 == 0:
+                    raise ValidationError('Error')
+                return values['string']
+
+            def field_integer(self, values: dict, **kwargs) -> int:
+                if values['integer'] % 5 == 0:
+                    raise ValidationError('Error')
+                return values['integer']
+
+            def field(self, values: dict, **kwargs):
+                if values['integer'] > 10:
+                    raise ValidationError('Error')
+
+                return values
+
+        mcsv = ValidationCsv.for_read(
+            table=[[str(i), str(i)] for i in range(20)]
+        )
+
+        with self.assertRaises(AttributeError):
+            mcsv.cleaned_rows
+
+        self.assertFalse(mcsv.is_valid())
+        self.assertEqual(len(mcsv.cleaned_rows), 20)
+        for row in mcsv.cleaned_rows:
+            with self.subTest(str(row)):
+                expected_is_valid = all([
+                    row.number % 3 != 0,
+                    row.number % 5 != 0,
+                    row.number <= 10
+                ])
+                self.assertEqual(row.is_valid, expected_is_valid)
+                if row.is_valid:
+                    self.assertEqual(row.errors, [])
+                    self.assertDictEqual(
+                        row.values,
+                        {'string': str(row.number), 'integer': row.number}
+                    )
+                    continue
+
+                self.assertEqual(row.values, {})
+                error_names = [error.name for error in row.errors]
+                if row.number % 3 == 0:
+                    self.assertIn('string', error_names)
+                    self.assertNotIn(None, error_names)
+
+                if row.number % 5 == 0:
+                    self.assertIn('integer', error_names)
+                    self.assertNotIn(None, error_names)
+
+                if all([
+                    row.number > 10,
+                    row.number % 3 != 0,
+                    row.number % 5 != 0,
+                ]):
+                    # method `field` is not called if `field_` methods raise
+                    # ValidationErrors.
+                    self.assertIn(None, error_names)
+
+                for error in row.errors:
+                    self.assertEqual(error.message, 'Error')

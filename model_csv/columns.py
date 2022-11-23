@@ -1,6 +1,8 @@
 from typing import Any, List, Optional, Callable
 
 
+__all__ = []
+
 class NoHeaderError(Exception):
     pass
 
@@ -180,7 +182,6 @@ def as_column(*, header: str = '', index: Optional[int] = None,
     return wrapper
 
 
-
 class AttributeColumn(BaseColumn):
     """
     The purpose of AttributeColumn is to get a value from an instance.
@@ -263,9 +264,9 @@ class BaseForeignColumn:
     """
     is_relation = True
 
-    def __init__(self, field_name: str, **kwargs):
+    def __init__(self, related_name: str, **kwargs):
         """
-        field_name: Field name of foreign model.
+        related_name: Field name of foreign model.
         attr_name: Attribute name of foreign model.
         e.g.
         class Child(models.Model):
@@ -274,28 +275,28 @@ class BaseForeignColumn:
         class Parent(models.Model):
             child = models.ForeignKey(Child, on_delete=...)
 
-        `field_name` is 'child' and `attr_name` is 'child_name'.
+        `related_name` is 'child' and `attr_name` is 'child_name'.
         """
-        self.__field_name = field_name
+        self.__related_name = related_name
 
         super().__init__(**kwargs)
 
     @property
-    def field_name(self) -> str:
-        return self.__field_name
+    def related_name(self) -> str:
+        return self.__related_name
 
 
 class ForeignMethodColumn(BaseForeignColumn, MethodColumn):
     def validate_for_read(self) -> None:
         super().validate_for_read()
-        if self.value_name == self.name:
+        if not self._value_name:
             raise ColumnValidationError(
                 '`value_name` is required if `read_value` is True'
             )
 
     def validate_for_write(self) -> None:
         super().validate_for_read()
-        if self.method_suffix == self.name:
+        if not self._method_suffix:
             raise ColumnValidationError(
                 '`method_suffix` is required if `write_value` is True'
             )

@@ -61,6 +61,9 @@ class ModelCsvAdminMixin:
             reader = READER(file=form.cleaned_data['file'], table_starts_from=1)
 
             mcsv = self.csv_class.for_read(table=reader.get_table())
-            mcsv.bulk_create()
+            if mcsv.is_valid():
+                mcsv.bulk_create()
+            else:
+                self.message_user(request, 'エラーがある')
 
             return redirect(reverse(f'admin:{self.get_urlname("changelist")}'))

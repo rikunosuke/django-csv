@@ -50,8 +50,8 @@ with open('book.csv', 'r') as f:
     table = reader.get_table()
 mcsv = BookCsv.for_read(table=table)
 
-# get values as dict
-mcsv.get_as_dict()  # list of dict
+# get values as Row(MutableMap)
+mcsv.cleaned_rows  # list of Row
 [{'title': 'Book title', 'price': 540, 'is_on_sale': True, 'description': 'description'}, ...]
 
 # get instances (unsaved django model)
