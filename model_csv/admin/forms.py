@@ -20,7 +20,7 @@ class UploadForm(forms.Form):
     )
     only_exists = forms.BooleanField(
         required=False, initial=True,
-        help_text='raise Exception if the publisher does not exist'
+        help_text='raise Exception if a publisher does not exist'
     )
 
     def clean(self):

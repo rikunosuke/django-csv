@@ -1,4 +1,4 @@
-from typing import Optional, Type
+from typing import Optional, Type, Any
 
 from . import readers, writers
 
@@ -41,3 +41,24 @@ def get_writer_class(filename: str = Optional[None],
         return writers.XlsWriter
 
     raise ValueError(f'`{extension} is not supported`')
+
+
+def render_row(maps: dict[int, Any], insert_blank_column: bool) -> list[str]:
+    """
+    convert maps from dict to list ordered by index.
+    maps: {index: value}
+    """
+    def __get_value_from_map(_i) -> Optional[str]:
+        try:
+            return maps[_i]
+        except KeyError:
+            if insert_blank_column:
+                return ''
+
+    return list(filter(
+        lambda x: x is not None,
+        [
+            __get_value_from_map(i)
+            for i in range(max(list(maps.keys())) + 1)
+         ]
+    ))

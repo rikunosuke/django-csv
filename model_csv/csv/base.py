@@ -1,7 +1,8 @@
+import collections
 import dataclasses
 import inspect
 import itertools
-from typing import Generator, Any, TypeVar, Type, Union, Callable, Optional, \
+from typing import Generator, Any, TypeVar, Type, Union, Callable, \
     MutableMapping
 
 from django.db import models
@@ -10,6 +11,8 @@ from .. import writers
 from ..columns import ForeignAttributeColumn, ForeignMethodColumn, \
     ForeignStaticColumn, BaseForeignColumn, ColumnValidationError
 from ..exceptions import ValidationError
+from ..utils import render_row
+
 
 READ_PREFIX = 'field_'
 WRITE_PREFIX = 'column_'
@@ -101,7 +104,15 @@ class Row(MutableMapping):
 
 class TableForRead:
     class ReadIndexOverColumnNumberError(Exception):
-        pass
+        """
+        check if csv has enough column number.
+        I recommend to check headers before constructing ModelCsv instead of
+        capture this exception.
+        e.g)
+        header, *table = reader.get_table()
+        if header != ModelCsv._meta.get_headers(for_read=True):
+            ...
+        """
 
     def __init__(self, table: list[list]) -> None:
         self.table = table
@@ -117,9 +128,14 @@ class TableForRead:
             raise ColumnValidationError(
                 f'{self.__class__.__name__} needs at least one column')
 
-        value_names = [col.value_name for col in cols]
-        if len(value_names) != len(set(value_names)):
-            raise ColumnValidationError('`value_name` must be unique.')
+        value_names = [col.value_name for col in cols if not col.is_relation]
+        duplicates = [
+            k for k, v in collections.Counter(value_names).items() if v > 1
+        ]
+        if duplicates:
+            raise ColumnValidationError(
+                f'`value_name` must be unique. {duplicates} are duplicate.'
+            )
 
         indexes = self._meta.get_r_indexes()
         if len(indexes) != len(set(indexes)):
@@ -127,7 +143,7 @@ class TableForRead:
                 '`index` must be unique. Change `index` or `r_index`')
 
         if len(self.table[0]) <= max(indexes):
-            raise self.ReadIndexOverColumnNumberError(
+            raise cls.ReadIndexOverColumnNumberError(
                 f'column number: {len(self.table[1])} < '
                 f'r_index: {max(indexes)}')
 
@@ -290,14 +306,6 @@ class ModelCsvForRead(ModelRowForRead, TableForRead):
 
 
 class RowForWrite:
-    def get_headers(self) -> list[str]:
-        return self.render_row({
-            column.get_w_index(): column.header
-            for column in self._meta.get_columns(for_write=True)
-        })
-
-    def get_header(self, name: str) -> str:
-        return self._meta.get_header(name=name)
 
     def get_row_value(self, instance, is_relation: bool = False) -> dict[int, str]:
         """
@@ -330,26 +338,6 @@ class RowForWrite:
 
         return row
 
-    def render_row(self, maps: dict[int, Any]) -> list[str]:
-        """
-        convert maps from dict to list ordered by index.
-        maps: {index: value}
-        """
-        def __get_value_from_map(_i) -> Optional[str]:
-            try:
-                return maps[_i]
-            except KeyError:
-                if self._meta.insert_blank_column:
-                    return ''
-
-        return list(filter(
-            lambda x: x is not None,
-            [
-                __get_value_from_map(i)
-                for i in range(max(list(maps.keys())) + 1)
-             ]
-        ))
-
 
 class CsvForWrite(RowForWrite):
     def __init__(self, instances):
@@ -364,9 +352,10 @@ class CsvForWrite(RowForWrite):
         """
         2D list created from instances.
         """
-        table = [self.get_headers()] if header else []
+        table = [self._meta.get_headers(for_write=True)] if header else []
         table += [
-            self.render_row(self.get_row_value(instance=instance))
+            render_row(self.get_row_value(instance=instance),
+                       insert_blank_column=self._meta.insert_blank_column)
             for instance in self.instances
         ]
 

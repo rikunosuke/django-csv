@@ -6,5 +6,5 @@ from .exceptions import ValidationError
 
 __all__ = [
     'hints', 'writers', 'columns', 'readers', 'ModelCsv', 'Csv', 'utils',
-    'ValidationError'
+    'ValidationError',
 ]

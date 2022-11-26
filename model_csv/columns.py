@@ -1,16 +1,6 @@
 from typing import Any, List, Optional, Callable
 
 
-__all__ = []
-
-class NoHeaderError(Exception):
-    pass
-
-
-class NoSuchFieldError(Exception):
-    pass
-
-
 class ColumnValidationError(Exception):
     pass
 

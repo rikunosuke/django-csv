@@ -12,6 +12,7 @@ class ModelCsvAdminMixin:
     actions = ['download_csv', 'download_tsv', 'download_xlsx', 'download_xls']
     file_name: str = 'CsvFile'
     csv_class: ModelCsv = None
+    csv_upload_form = UploadForm
     error_message = 'Error'
 
     @admin.action(description='download (.csv)')
@@ -48,29 +49,39 @@ class ModelCsvAdminMixin:
 
     def upload_csv(self, request):
         if request.method == 'GET':
-            return TemplateResponse(
-                request,
-                'admin/django_csv/upload_csv.html', {'form': UploadForm()})
-        else:
-            form = UploadForm(request.POST, request.FILES)
-            if not form.is_valid():
-                return TemplateResponse(
-                    request,
-                    'admin/django_csv/upload_csv.html', {'form': form})
+            return self.get_response(request, form=self.csv_upload_form())
 
-            READER = form.cleaned_data['reader']
-            reader = READER(file=form.cleaned_data['file'],
-                            table_starts_from=1)
+        form = self.csv_upload_form(request.POST, request.FILES)
+        if not form.is_valid():
+            return self.get_response(request, form=form)
 
-            mcsv = self.csv_class.for_read(table=reader.get_table())
-            mcsv.set_static('only_exists', form.cleaned_data['only_exists'])
-            if mcsv.is_valid():
-                mcsv.bulk_create()
-                return redirect(
-                    reverse(f'admin:{self.get_urlname("changelist")}'))
+        READER = form.cleaned_data['reader']
+        reader = READER(file=form.cleaned_data['file'])
 
-            self.message_user(request, self.error_message, level='ERROR')
-            return TemplateResponse(
-                request, 'admin/django_csv/upload_csv.html',
-                {'form': form, 'rows': mcsv.cleaned_rows}
+        headers, *table = reader.get_table()
+        expected_headers = self.csv_class._meta.get_headers(for_read=True)
+        if headers != expected_headers:
+            self.message_user(
+                request, f'Column order must be {expected_headers}. Not {headers}',
+                level='ERROR'
             )
+            return self.get_response(request, form=form)
+
+        mcsv = self.csv_class.for_read(table=table)
+        mcsv.set_static('only_exists', form.cleaned_data['only_exists'])
+        if mcsv.is_valid():
+            mcsv.bulk_create()
+            return redirect(
+                reverse(f'admin:{self.get_urlname("changelist")}'))
+
+        self.message_user(request, self.error_message, level='ERROR')
+        return TemplateResponse(
+            request, 'admin/django_csv/upload_csv.html',
+            {'form': form, 'rows': mcsv.cleaned_rows}
+        )
+
+    def get_response(self, request, **kwargs):
+        return TemplateResponse(
+            request,
+            'admin/django_csv/upload_csv.html', kwargs
+        )

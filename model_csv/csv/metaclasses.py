@@ -8,6 +8,7 @@ import copy
 
 from .base import BasePart
 from ..columns import BaseColumn, AttributeColumn
+from ..utils import render_row
 
 
 class CsvOptions:
@@ -281,6 +282,20 @@ class CsvOptions:
 
     def get_header(self, name: str) -> str:
         return self.get_column(name).header
+
+    def get_headers(self, for_read: bool = False, for_write: bool = False
+                    ) -> list[str]:
+        if for_read == for_write:
+            raise ValueError('choose read mode or write mode')
+
+        attr_names = 'get_r_index' if for_read else 'get_w_index'
+        cols = {
+            getattr(col, attr_names)(): col.header
+            for col in self.get_columns(
+                for_read=for_read or None, for_write=for_write or None
+            )
+        }
+        return render_row(cols, insert_blank_column=self.insert_blank_column)
 
     def assign_number(self) -> None:
         """

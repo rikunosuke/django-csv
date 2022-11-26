@@ -38,7 +38,7 @@ class CsvTest(TestCase):
         instances = [TestClass(attribute=f'attribute {i}') for i in range(3)]
         for_write = DefaultUseCsv.for_write(instances=instances)
         self.assertListEqual(
-            for_write.get_headers(),
+            for_write._meta.get_headers(for_write=True),
             ['static', 'insert static', 'attribute', 'method']
         )
         for_write.set_static_column('insert_static', 'inserted')
