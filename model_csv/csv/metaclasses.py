@@ -81,7 +81,7 @@ class CsvOptions:
         if self.auto_assign:
             self.assign_number()
 
-    def convert_from_str(self, value: Any, to: Any) -> Any:
+    def convert_from_str(self, value: Any, to: Any, column_index: int) -> Any:
         if not self.auto_convert or not isinstance(value, str):
             return value
 
@@ -125,14 +125,14 @@ class CsvOptions:
 
         if to in (date, datetime):
             try:
-                naive = datetime.strptime(value, self.datetime_format)
+                aware = datetime.strptime(value, self.datetime_format)
             except (ValueError, TypeError):
                 pass
             else:
                 if self.tzinfo:
-                    return timezone.make_aware(naive, self.tzinfo)
+                    return timezone.make_aware(aware, self.tzinfo)
                 else:
-                    return naive
+                    return aware
 
             try:
                 return datetime.strptime(value, self.date_format).date()

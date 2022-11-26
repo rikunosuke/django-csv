@@ -499,21 +499,6 @@ class CsvMetaOptionTest(TestCase):
                 self.assertDictEqual(dataclasses.asdict(tdata), row.values)
 
     def test_convert(self):
-        @dataclasses.dataclass
-        class Data:
-            integer: int
-            string: str = dataclasses.field(init=False)
-            boolean: bool = dataclasses.field(init=False)
-            float_: float = dataclasses.field(init=False)
-            date_: date = dataclasses.field(init=False)
-            date_time: datetime = dataclasses.field(init=False)
-
-            def __post_init__(self):
-                self.string = f'string {self.integer}'
-                self.boolean = bool(self.integer % 2)
-                self.float_ = self.integer + self.integer / 10
-                self.date_time = timezone.now() + timedelta(days=self.integer)
-                self.date_ = self.date_time.date()
 
         class ConvertCsv(Csv):
             string = columns.AttributeColumn(to=str)
@@ -527,6 +512,20 @@ class CsvMetaOptionTest(TestCase):
                 auto_assign = True
                 show_true = 'Yes'
                 show_false = 'No'
+
+        @dataclasses.dataclass
+        class Data:
+            integer: int
+
+            def __post_init__(self):
+                self.string = f'string {self.integer}'
+                self.boolean = bool(self.integer % 2)
+                self.float_ = self.integer + self.integer / 10
+                self.date_time = timezone.now() + timedelta(days=self.integer)
+
+                self.date_ = self.date_time.astimezone(
+                    ConvertCsv._meta.tzinfo
+                ).date()
 
         data = [Data(integer=i) for i in range(10)]
         mcsv = ConvertCsv.for_write(instances=data)
@@ -680,11 +679,11 @@ class CsvMetaOptionTest(TestCase):
                 error_names = [error.name for error in row.errors]
                 if row.number % 3 == 0:
                     self.assertIn('string', error_names)
-                    self.assertNotIn(None, error_names)
+                    self.assertNotIn('field_method', error_names)
 
                 if row.number % 5 == 0:
                     self.assertIn('integer', error_names)
-                    self.assertNotIn(None, error_names)
+                    self.assertNotIn('field_method', error_names)
 
                 if all([
                     row.number > 10,
@@ -693,7 +692,7 @@ class CsvMetaOptionTest(TestCase):
                 ]):
                     # method `field` is not called if `field_` methods raise
                     # ValidationErrors.
-                    self.assertIn(None, error_names)
+                    self.assertIn('field_method', error_names)
 
                 for error in row.errors:
                     self.assertEqual(error.message, 'Error')

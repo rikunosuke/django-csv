@@ -12,6 +12,7 @@ class ModelCsvAdminMixin:
     actions = ['download_csv', 'download_tsv', 'download_xlsx', 'download_xls']
     file_name: str = 'CsvFile'
     csv_class: ModelCsv = None
+    error_message = 'Error'
 
     @admin.action(description='download (.csv)')
     def download_csv(self, request, queryset):
@@ -58,12 +59,18 @@ class ModelCsvAdminMixin:
                     'admin/django_csv/upload_csv.html', {'form': form})
 
             READER = form.cleaned_data['reader']
-            reader = READER(file=form.cleaned_data['file'], table_starts_from=1)
+            reader = READER(file=form.cleaned_data['file'],
+                            table_starts_from=1)
 
             mcsv = self.csv_class.for_read(table=reader.get_table())
+            mcsv.set_static('only_exists', form.cleaned_data['only_exists'])
             if mcsv.is_valid():
                 mcsv.bulk_create()
-            else:
-                self.message_user(request, 'エラーがある')
+                return redirect(
+                    reverse(f'admin:{self.get_urlname("changelist")}'))
 
-            return redirect(reverse(f'admin:{self.get_urlname("changelist")}'))
+            self.message_user(request, self.error_message, level='ERROR')
+            return TemplateResponse(
+                request, 'admin/django_csv/upload_csv.html',
+                {'form': form, 'rows': mcsv.cleaned_rows}
+            )

@@ -9,6 +9,7 @@ from django.db import models
 from .. import writers
 from ..columns import ForeignAttributeColumn, ForeignMethodColumn, \
     ForeignStaticColumn, BaseForeignColumn, ColumnValidationError
+from ..exceptions import ValidationError
 
 READ_PREFIX = 'field_'
 WRITE_PREFIX = 'column_'
@@ -16,8 +17,11 @@ WRITE_PREFIX = 'column_'
 
 @dataclasses.dataclass
 class ErrorMessage:
+    name: str
     message: str
-    name: str | None = None
+    row_number: int
+    label: str = None
+    column_index: int = None
 
     @property
     def is_none_field_error(self) -> bool:
@@ -86,12 +90,19 @@ class Row(MutableMapping):
             if key not in exclude:
                 del self._values[key]
 
-
-class ValidationError(Exception):
-    pass
+    def append_error(self, exception: ValidationError, name: str,
+                     row_number: int):
+        self.errors.append(
+            ErrorMessage(message=str(exception), name=name,
+                         row_number=row_number, label=exception.label,
+                         column_index=exception.column_index)
+        )
 
 
 class TableForRead:
+    class ReadIndexOverColumnNumberError(Exception):
+        pass
+
     def __init__(self, table: list[list]) -> None:
         self.table = table
         self._is_checked = False  # check if is_valid() called or not.
@@ -115,11 +126,8 @@ class TableForRead:
             raise ColumnValidationError(
                 '`index` must be unique. Change `index` or `r_index`')
 
-        if len(self.table[0]) < max(indexes):
-            class ReadIndexOverColumnNumberError(Exception):
-                pass
-
-            raise ReadIndexOverColumnNumberError(
+        if len(self.table[0]) <= max(indexes):
+            raise self.ReadIndexOverColumnNumberError(
                 f'column number: {len(self.table[1])} < '
                 f'r_index: {max(indexes)}')
 
@@ -129,7 +137,7 @@ class TableForRead:
 
         self.__cleaned_rows: list[Row] = []
         for i, row in enumerate(self.table.copy()):
-            row_model = self.read_from_row(row, i)
+            row_model = self.read_from_row(row, i)  # type: Row
             # if row raises any ValidationError, then `field` method is not
             # called because row.values may contain unexpected type.
             if row_model.is_valid:
@@ -139,7 +147,10 @@ class TableForRead:
                         static=self._static.copy()
                     ))
                 except ValidationError as e:
-                    row_model.errors.append(ErrorMessage(message=str(e)))
+                    row_model.append_error(
+                        exception=e, row_number=i,
+                        name=self.error_name_prefix + 'field_method'
+                    )
             self.__cleaned_rows.append(row_model)
 
         self._is_checked = True
@@ -204,11 +215,11 @@ class RowForRead:
                 )
             except ValidationError as e:
                 errors.append(
-                    ErrorMessage(
-                        message=str(e),
-                        name=self.error_name_prefix + value_name
-                    )
-            )
+                    ErrorMessage(message=str(e),
+                                 name=self.error_name_prefix + value_name,
+                                 row_number=number, label=e.label,
+                                 column_index=e.column_index)
+                )
 
         return Row(number=number, errors=errors, values=updated)
 
@@ -220,7 +231,7 @@ class RowForRead:
         """
         values = {
             col.value_name: self._meta.convert_from_str(
-                col.get_value_for_read(row=row), to=col.to
+                col.get_value_for_read(row=row), to=col.to, column_index=col.r_index
             ) for col in self._meta.get_columns(
                 for_read=True, is_relation=is_relation
             )
@@ -443,30 +454,40 @@ class PartForRead(ModelRowForRead):
     def get_instance(self, row: list[str], number: int, static: dict
                      ) -> Row:
         self._static = static.copy()  # inject static from main csv.
-        row_model: Row = self.read_from_row(row, number, is_relation=True)
-        if row_model.is_valid:
+        rw: Row = self.read_from_row(row, number, is_relation=True)
+        if rw.is_valid:
             try:
-                row_model.update(self.field(values=row_model.values))
+                rw.update(self.field(values=rw.values))
             except ValidationError as e:
-                row_model.errors.append(
-                    ErrorMessage(message=str(e))
+                rw.append_error(
+                    exception=e, name=self.error_name_prefix + 'field_method',
+                    row_number=number
                 )
 
-        if row_model.is_valid:
-            values = self.remove_extra_values(row_model.values)
-            row_model[self.related_name] = self._callback(values=values)
+        if rw.is_valid:
+            try:
+                rw[self.related_name] = self._callback(values=rw.values.copy(),
+                                                       static=self._static.copy())
+            except ValidationError as e:
+                rw.append_error(
+                    exception=e, name=self.error_name_prefix + 'callback',
+                    row_number=number
+                )
 
-        row_model.clean(exclude=[self.related_name])
-        return row_model
+        rw.clean(exclude=[self.related_name])
+        return rw
 
-    def get_or_create_object(self, values: dict) -> models.Model:
+    def get_or_create_object(self, values: dict, **kwargs) -> models.Model:
+        values = self.remove_extra_values(values)
         return self.model.objects.get_or_create(**values)[0]
 
-    def create_object(self, values: dict) -> models.Model:
+    def create_object(self, values: dict, **kwargs) -> models.Model:
+        values = self.remove_extra_values(values)
         return self.model.objects.create(**values)
 
-    def get_object(self, values: dict) -> models.Model:
-        return self.model.objects.get(values)
+    def get_object(self, values: dict, **kwargs) -> models.Model:
+        values = self.remove_extra_values(values)
+        return self.model.objects.get(**values)
 
 
 class PartForWrite(RowForWrite):
@@ -522,6 +543,3 @@ class BasePart(PartForWrite, PartForRead):
 
     def StaticColumn(self, **kwargs):
         return self._add_column(ForeignStaticColumn, **kwargs)
-
-    def as_column(self, ):
-        pass
