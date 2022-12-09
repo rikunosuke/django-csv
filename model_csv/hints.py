@@ -1,4 +1,4 @@
-from typing import Union, Type
+from typing import Union
 
 from . import writers, columns, readers
 

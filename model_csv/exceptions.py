@@ -1,4 +1,3 @@
-
 class ValidationError(Exception):
     """Error while validating data"""
 

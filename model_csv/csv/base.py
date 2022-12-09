@@ -33,6 +33,17 @@ class ErrorMessage:
 
 
 class Row(MutableMapping):
+    """
+    Dict like object which contains a result of `field_*` method as key-value
+    and ErrorMessage objects as list.
+    e.g.
+    if row.is_valid:
+        for key, value in row.items():
+            ...
+    else:
+        for error in row.errors:
+            ...
+    """
     def __init__(self, number: int, errors: list, values: dict):
         self.number = number
         self.errors: list[ErrorMessage] = errors
@@ -143,7 +154,7 @@ class TableForRead:
                 '`index` must be unique. Change `index` or `r_index`')
 
         if len(self.table[0]) <= max(indexes):
-            raise cls.ReadIndexOverColumnNumberError(
+            raise self.ReadIndexOverColumnNumberError(
                 f'column number: {len(self.table[1])} < '
                 f'r_index: {max(indexes)}')
 
