@@ -193,6 +193,9 @@ class AttributeColumn(BaseColumn):
         instance: An instance of class such as Django Model or Dataclass etc.
         attr_name: Field name of Django Model, or attribute name of an instance.
         """
+        if '__' in self.attr_name and hasattr(instance, self.attr_name):
+            return getattr(instance, self.attr_name)
+
         val = instance
         for attr_name in self.attr_name.split('__'):
             val = getattr(val, attr_name)
