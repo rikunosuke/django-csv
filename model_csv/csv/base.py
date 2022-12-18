@@ -34,18 +34,17 @@ class ErrorMessage:
 
 class Row(MutableMapping):
     """
-    Dict like object which contains a result of `field_*` method as key-value
+    Dict like object which contains results of `field_*` methods as key-value
     and ErrorMessage objects as list.
     e.g.
     if row.is_valid:
-        for key, value in row.items():
-            ...
+        Model.objects.create(**row)
     else:
         for error in row.errors:
             ...
     """
     def __init__(self, number: int, errors: list, values: dict):
-        self.number = number
+        self.number = number  # Row number
         self.errors: list[ErrorMessage] = errors
         self._values = values
 
@@ -241,6 +240,12 @@ class RowForRead:
                     values=values.copy(), static=self._static.copy(),
                 )
             except ValidationError as e:
+                if e.column_index is None:
+                    e.column_index = next((
+                        col.r_index for col in self._meta.get_columns(for_read=True)
+                        if col.method_suffix == value_name),
+                        None
+                    )
                 errors.append(
                     ErrorMessage(message=str(e),
                                  name=self.error_name_prefix + value_name,
