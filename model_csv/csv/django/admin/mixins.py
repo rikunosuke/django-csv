@@ -3,15 +3,15 @@ from django.shortcuts import redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse, path
 
-from ..csv import ModelCsv
-from ..writers import TsvWriter, CsvWriter, XlsxWriter, XlsWriter
+from django_csv.model_csv.csv.django import DjangoCsv
+from django_csv.model_csv.writers import TsvWriter, CsvWriter, XlsxWriter, XlsWriter
 from .forms import UploadForm
 
 
-class ModelCsvAdminMixin:
+class DjangoCsvAdminMixin:
     actions = ['download_csv', 'download_tsv', 'download_xlsx', 'download_xls']
     file_name: str = 'CsvFile'
-    csv_class: ModelCsv = None
+    csv_class: DjangoCsv = None
     csv_upload_form = UploadForm
     error_message = 'Error'
 

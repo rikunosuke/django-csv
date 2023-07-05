@@ -1,15 +1,12 @@
 import collections
 import dataclasses
 import inspect
-import itertools
-from typing import Generator, Any, TypeVar, Type, Union, Callable, \
-    MutableMapping
-
-from django.db import models
+from typing import Any, TypeVar, MutableMapping, Generator, Callable, Union, \
+    Type
 
 from .. import writers
-from ..columns import ForeignAttributeColumn, ForeignMethodColumn, \
-    ForeignStaticColumn, BaseForeignColumn, ColumnValidationError
+from ..columns import ColumnValidationError, ForeignStaticColumn, \
+    ForeignMethodColumn, ForeignAttributeColumn, BaseForeignColumn
 from ..exceptions import ValidationError
 from ..utils import render_row
 
@@ -272,53 +269,8 @@ class RowForRead:
         return self.apply_method_change(values, number)
 
 
-class ModelRowForRead(RowForRead):
-    def read_from_row(self, row: list[str], number: int,
-                      is_relation: bool = False) -> Row:
-        row_model: Row = super().read_from_row(row, number, is_relation)
-        for prt in self._meta.parts:
-            row_model += prt.get_instance(
-                row=row, number=number, static=self._static.copy()
-            )
-        return row_model
-
-    def remove_extra_values(self, values: dict) -> dict:
-        """
-        remove values which is not in fields
-        """
-        fields = self._meta.model._meta.get_fields()
-
-        return {
-            k: v for k, v in values.items()
-            if k in [f.name for f in fields] or k.endswith('_id')
-        }
-
-
 class CsvForRead(RowForRead, TableForRead):
     pass
-
-
-class ModelCsvForRead(ModelRowForRead, TableForRead):
-    def get_instances(self, only_valid: bool = False) -> Generator:
-        if not self.is_valid() and not only_valid:
-            raise ValueError('`is_valid()` method failed')
-
-        for row in self.cleaned_rows:
-            if not row.is_valid:
-                continue
-
-            values = self.remove_extra_values(row.values)
-            yield self._meta.model(**values)
-
-    def bulk_create(self, batch_size=100, only_valid: bool = False) -> None:
-        iterator = self.get_instances(only_valid=only_valid)
-
-        while True:
-            created = list(itertools.islice(iterator, batch_size))
-            if not created:
-                break
-
-            self._meta.model.objects.bulk_create(created)
 
 
 class RowForWrite:
@@ -451,7 +403,23 @@ class BaseCsv:
         )(instances=instances)
 
 
-class PartForRead(ModelRowForRead):
+class BaseModelRowForRead(RowForRead):
+    def read_from_row(self, row: list[str], number: int,
+                      is_relation: bool = False) -> Row:
+        row_model: Row = super().read_from_row(row, number, is_relation)
+        for prt in self._meta.parts:
+            row_model += prt.get_instance(
+                row=row, number=number, static=self._static.copy()
+            )
+        return row_model
+
+    def remove_extra_values(self, values: dict) -> dict:
+        return values
+
+
+class PartForReadMixin:
+    related_name: str
+
     @property
     def error_name_prefix(self):
         return self.related_name + '__'
@@ -482,42 +450,11 @@ class PartForRead(ModelRowForRead):
         rw.clean(exclude=[self.related_name])
         return rw
 
-    def get_or_create_object(self, values: dict, **kwargs) -> models.Model:
-        values = self.remove_extra_values(values)
-        return self.model.objects.get_or_create(**values)[0]
 
-    def create_object(self, values: dict, **kwargs) -> models.Model:
-        values = self.remove_extra_values(values)
-        return self.model.objects.create(**values)
-
-    def get_object(self, values: dict, **kwargs) -> models.Model:
-        values = self.remove_extra_values(values)
-        return self.model.objects.get(**values)
-
-
-class PartForWrite(RowForWrite):
-    def get_row_value(self, instance, is_relation: bool = False
-                      ) -> dict[int, str]:
-        # get foreign model.
-        relation_instance = getattr(instance, self.related_name)
-        if not isinstance(relation_instance, self.model):
-            raise ValueError(f'Wrong field name. `{self.related_name}` is not '
-                             f'{self.model.__class__.__name__}.')
-        return super().get_row_value(relation_instance, is_relation=is_relation)
-
-
-class BasePart(PartForWrite, PartForRead):
+class BasePartMixin:
     def __init__(self, related_name: str,
                  callback: Union[str, Callable] = 'get_or_create_object',
                  **kwargs):
-
-        if self._meta.model is None:
-            mcsv_class_name = self.__class__.__name__.split('Part', 1)[0]
-            raise ValueError(
-                f'django model is not defined in meta class of {mcsv_class_name}'
-            )
-
-        self.model = self._meta.model
         self.related_name = related_name
         self._static = {}
 
@@ -527,7 +464,6 @@ class BasePart(PartForWrite, PartForRead):
             self._callback = callback
         else:
             raise ValueError('`callback` must be str or callable.')
-
         # Don't call super().__init__ cos column validations should not run.
 
     def _add_column(self, column_class: Type[BaseForeignColumn], **kwargs

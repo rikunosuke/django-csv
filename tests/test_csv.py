@@ -233,6 +233,9 @@ class CsvMetaOptionTest(TestCase):
             date_time = columns.MethodColumn(index=2, to=datetime)
             date_ = columns.MethodColumn(index=3, to=date)
 
+            class Meta:
+                tzinfo = timezone.get_current_timezone()
+
             def column_false(self, **kwargs):
                 return False
 
@@ -274,6 +277,7 @@ class CsvMetaOptionTest(TestCase):
                 as_false = ['False', 'false']
                 datetime_format = '%y/%m/%d %H:%M:%S'
                 date_format = '%y/%m/%d'
+                tzinfo = timezone.get_current_timezone()
 
             def column_false2(self, **kwargs):
                 return False

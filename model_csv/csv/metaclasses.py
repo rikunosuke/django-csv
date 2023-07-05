@@ -1,13 +1,11 @@
 from collections import OrderedDict
-from datetime import datetime, date
-from django.db import models
-from django.utils import timezone
-from typing import Optional, Dict, Iterable, List, Any
+from datetime import datetime, date, timezone
+from typing import Dict, Iterable, List, Any
 
 import copy
 
-from .base import BasePart
-from ..columns import BaseColumn, AttributeColumn
+from .base import BasePartMixin
+from ..columns import BaseColumn
 from ..utils import render_row
 
 
@@ -16,7 +14,7 @@ class CsvOptions:
     write_mode: bool = True
     datetime_format: str = '%Y-%m-%d %H:%M:%S'
     date_format: str = '%Y-%m-%d'
-    tzinfo = timezone.get_current_timezone()
+    tzinfo = timezone.utc
     show_true: str = 'yes'
     show_false: str = 'no'
     as_true: Iterable = ['yes', 'Yes']
@@ -51,7 +49,7 @@ class CsvOptions:
         pass
 
     def __init__(self, meta, columns: Dict[str, BaseColumn],
-                 parts: List[BasePart]):
+                 parts: List[BasePartMixin]):
 
         self.parts = parts
         meta = copy.deepcopy(meta)
@@ -126,14 +124,14 @@ class CsvOptions:
 
         if to in (date, datetime):
             try:
-                aware = datetime.strptime(value, self.datetime_format)
+                naive = datetime.strptime(value, self.datetime_format)
             except (ValueError, TypeError):
                 pass
             else:
                 if self.tzinfo:
-                    return timezone.make_aware(aware, self.tzinfo)
-                else:
-                    return aware
+                    if naive.tzinfo is None:
+                        return naive.replace(tzinfo=self.tzinfo)
+                return naive
 
             try:
                 return datetime.strptime(value, self.date_format).date()
@@ -323,99 +321,6 @@ class CsvOptions:
             w_index=True, original=original)]
 
 
-def get_type_from_model_field(field: models.Field):
-    if isinstance(field, models.IntegerField):
-        return int
-
-    if isinstance(field, models.FloatField):
-        return float
-
-    if isinstance(field, models.BooleanField):
-        return bool
-
-    if isinstance(field, models.DateTimeField):
-        return datetime
-
-    if isinstance(field, models.DateField):
-        return date
-
-    return str
-
-
-class ModelOptions(CsvOptions):
-    ALLOWED_META_ATTR = CsvOptions.ALLOWED_META_ATTR + (
-        'model',
-        'fields',
-        'headers',
-        'as_part',
-    )
-
-    def __init__(self, meta: Optional[type], columns: Dict[str, BaseColumn],
-                 parts: List['Part']):
-        if meta is None:
-            raise ValueError('class `Meta` is required in `ModelCsv`')
-
-        if not hasattr(meta, 'model'):
-            raise ValueError('`model` is required in class `Meta.`')
-
-        self.model = meta.model
-
-        if getattr(meta, 'as_part', False):
-            # ModelCsvOptions of Part Class only has own relation columns.
-            super().__init__(meta, {}, parts)
-            return
-
-        # auto create AttributeColumns for fields.
-        if not (field_names := getattr(meta, 'fields', None)):
-            super().__init__(meta, columns, parts)
-            return
-
-        if field_names == '__all__':
-            fields = [f for f in self.model._meta.get_fields()
-                      if not f.auto_created and not f.is_relation]
-        else:
-            fields = [self.model._meta.get_field(name) for name in field_names]
-
-        # skip if the name is already used.
-        column_names = columns.keys()
-        fields = [f for f in fields if f.name not in column_names]
-
-        _kwargs = {
-            'columns': list(columns.values()),
-            'original': True
-        }
-
-        unassigned_r = self.get_unassigned(
-            [
-                col.get_r_index(original=True)
-                for col in self.filter_columns(r_index=True, **_kwargs)
-            ]
-        )
-
-        unassigned_w = self.get_unassigned(
-            [
-                col.get_w_index(original=True)
-                for col in self.filter_columns(w_index=True, **_kwargs)
-            ]
-        )
-
-        for r, w, f in zip(unassigned_r, unassigned_w, fields):
-            header = meta.headers.get(f.name) if hasattr(meta,
-                                                         'headers') else None
-            if not header:
-                header = getattr(f, 'verbose_name', f.name)
-
-            to = get_type_from_model_field(f)
-
-            columns.update({
-                f.name: AttributeColumn(
-                    r_index=r, w_index=w, header=header, to=to
-                )
-            })
-
-        super().__init__(meta, columns, parts)
-
-
 class BaseMetaclass(type):
     """
     create Options class from Meta and add _meta to attrs.
@@ -452,7 +357,7 @@ class BaseMetaclass(type):
     @classmethod
     def __concat_parts(mcs, bases: tuple, attrs: dict) -> list:
         parts = [
-            attr for attr in attrs.values() if isinstance(attr, BasePart)
+            attr for attr in attrs.values() if isinstance(attr, BasePartMixin)
         ]
 
         for base in bases:
@@ -464,7 +369,3 @@ class BaseMetaclass(type):
 
 class CsvMetaclass(BaseMetaclass):
     option_class = CsvOptions
-
-
-class ModelCsvMetaclass(BaseMetaclass):
-    option_class = ModelOptions

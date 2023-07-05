@@ -1,6 +1,6 @@
 from django import forms
 
-from .. import readers
+from django_csv.model_csv import readers
 
 READER = {
     'csv': readers.CsvReader,
