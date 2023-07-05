@@ -36,7 +36,10 @@ class DataClassOptions(CsvOptions):
 
         # auto create AttributeColumns for fields.
         if field_names == '__all__':
-            fields = list(dataclasses.fields(self.dclass))
+            fields = [
+                f for f in dataclasses.fields(self.dclass)
+                if not dataclasses.is_dataclass(f.type)
+            ]
         else:
             fields = [field for field in dataclasses.fields(self.dclass) if field.name in field_names]
 
@@ -69,11 +72,9 @@ class DataClassOptions(CsvOptions):
 
             to = f.type
 
-            columns.update({
-                f.name: AttributeColumn(
+            columns[f.name] = AttributeColumn(
                     r_index=r, w_index=w, header=header, to=to
                 )
-            })
 
         super().__init__(meta, columns, parts)
 

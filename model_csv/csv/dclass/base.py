@@ -6,7 +6,11 @@ from ..base import BaseModelRowForRead, TableForRead, PartForReadMixin, \
 
 
 class DataClassRowForRead(BaseModelRowForRead):
-    pass
+    def remove_extra_values(self, values: dict) -> dict:
+        return {
+            k: v for k, v in values.items()
+            if k in [f.name for f in dataclasses.fields(self._meta.dclass)]
+        }
 
 
 class DataClassCsvForRead(DataClassRowForRead, TableForRead):
@@ -19,12 +23,12 @@ class DataClassCsvForRead(DataClassRowForRead, TableForRead):
                 continue
 
             values = self.remove_extra_values(row.values)
-            yield self._meta.model(**values)
+            yield self._meta.dclass(**values)
 
 
 class DataClassPartForRead(PartForReadMixin, DataClassRowForRead):
     def get_dataclass(self, values: dict, **kwargs) -> dataclasses.dataclass:
-        return self.dclass(**values)
+        return self.dclass(**self.remove_extra_values(values))
 
 
 class DataClassPartForWrite(RowForWrite):

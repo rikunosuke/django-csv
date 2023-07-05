@@ -95,11 +95,9 @@ class DjangoOptions(CsvOptions):
 
             to = get_type_from_model_field(f)
 
-            columns.update({
-                f.name: AttributeColumn(
+            columns[f.name] = AttributeColumn(
                     r_index=r, w_index=w, header=header, to=to
                 )
-            })
 
         super().__init__(meta, columns, parts)
 
