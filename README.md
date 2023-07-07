@@ -2,7 +2,8 @@
 model-csv makes it easy to treat csv, tsv and excel file.
 
 # How to use model-csv
-## 1. create ModelCsv
+## 1. Create ModelCsv classes.
+### Django model
 ```python3
 class Book(models.Model):
     title = models.CharField(max_length=100)
@@ -14,54 +15,51 @@ class Book(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-from model_csv import ModelCsv
+from model_csv.csv.django import DjangoCsv
 
 
-class BookCsv(ModelCsv):
+class BookCsv(DjangoCsv):
     class Meta:
         model = Book
         # if you declare fields then ModelCsv create columns automatically.
         fields = '__all__'
 ```
 
-## 2.1 create a django-response
-```python3
-# create 2d list of model values from queryset
-mcsv = BookCsv.for_write(instances=Book.objects.all())
-mcsv.get_table(header=True)
-[['title', 'price', 'is_on_sale', 'description'], ['Book title', '540', 'YES', 'description']]
+### dataclasses.dataclass
 
+```python3
+@dataclasses.dataclass
+class Book:
+    title: str
+    price: int
+    is_on_sale: bool
+    description: str
+
+
+from model_csv.csv.dclass import DataClassCsv
+
+
+class BookCsv(DataClassCsv):
+    class Meta:
+        dclass = Book
+        fields = '__all__'
+```
+
+## 2.1 Create a 2d list of instances if you want to create csv file.
+```python3
+>>> mcsv = BookCsv.for_write(instances=book_instances)
+>>> mcsv.get_table(header=True)
+[['title', 'price', 'is_on_sale', 'description'], ['Book title', '540', 'YES', 'description'], ...]
+
+# if django model
 # choose file type. (CsvWriter, TsvWriter, XlsxWriter)
-from model_csv.writers import CsvWriter
-writer = CsvWriter(file_name='book')
-
-# make response
-mcsv.get_response(writer=writer)
+>>> from model_csv.writers import CsvWriter
+>>> writer = CsvWriter(file_name='book')
+# only DjangoCsv classes can make a django response.
+>>> mcsv.get_response(writer=writer)
 ```
 
-## 2.2 create models from csv file.
-```python3
-# choose a file type. (CsvReader, TsvReader, XlsxReader, XlsReader)
-from mcsv.readers import CsvReader
-
-# create models from csv file.
-with open('book.csv', 'r') as f:
-    reader = CsvReader(file=f, table_starts_from=1)
-    table = reader.get_table()
-mcsv = BookCsv.for_read(table=table)
-
-# get values as Row(MutableMap)
-mcsv.cleaned_rows  # list of Row
-[{'title': 'Book title', 'price': 540, 'is_on_sale': True, 'description': 'description'}, ...]
-
-# get instances (unsaved django model)
-instances = list(mcsv.get_instances())
-
-# bulk create django model
-mcsv.bulk_create(batch_size=100)
-```
-
-## Download and Upload View Example.
+### Django - Download and Upload View Example.
 ```python3
 # Download csv file in django view.
 class BookDownloadView(generic.View):
@@ -73,13 +71,21 @@ class BookDownloadView(generic.View):
 # Upload csv file in django view.
 class BookUploadView(generic.View):
     def form_valid(self, form, **kwargs):
-        # e.g. [['Book title', '540', 'YES', 'description'],]
         file = form.cleaned_data['file']
         reader = CsvReader(file=file, table_starts_from=1)
-        mcsv = BookCsv.for_read(table=reader.get_table())
-        # create book model.
-        mcsv.bulk_create()
-        return redirect(self.get_success_url)
+        headers, *table = reader.get_table()
+        if headers != BookCsv._meta.get_headers():
+            form.add_error('file', 'Invalid header.')
+            return self.form_invalid(form)
+
+        # e.g. [['Book title', '540', 'YES', 'description'],]
+        mcsv = BookCsv.for_read(table=table)
+        if mcsv.is_valid():
+            # create book model.
+            mcsv.bulk_create()
+            return redirect(self.get_success_url)
+        # handling errors in templates
+        ...
 ```
 
 ## model-csv is a Class-Based Csv Manager.
@@ -134,6 +140,7 @@ class BookDownloadCsv(generic.View):
 ```
 
 Cool Solution with model-csv
+
 ```python
 from model_csv import ModelCsv, columns
 
@@ -197,10 +204,16 @@ class BookDownloadView(generic.View):
 
 There are 3 types of columns and 1 decorator.
 
+All these columns work in a same way when read values from a csv file.
+
+(just return a value from row by using an index)
+
+They work differently when write down values to a csv file.
+
 ### AttributeColumn
 Write down an attribute value
 ```python
-class BookCsv(ModelCsv):
+class BookCsv(DjangoCsv):
     title = columns.AttributeColumn(header='Book Title', index=0)
 
     class Meta:
@@ -213,7 +226,7 @@ If set `attr_name` then `AttributeColumn` changes an attribute it refers to.
 class BookCsv(ModelCsv):
     title = columns.AttributeColumn(header='Book Title', index=0)
     official_title = columns.AttributeColumn(
-        header='Book Title', attr_name='title', index=1)
+        header='Official Title', attr_name='title', index=1)  # same as title
 
     class Meta:
         model = Book
@@ -230,9 +243,15 @@ class BookCsv(ModelCsv):
 
     def column_full_title(self, instance: Book, **kwargs) -> str:
         return f'{instance.title} {instance.subtitle}'
+
+    def field_title(self, value: dict, **kwargs) -> str:
+        return value["full_title"].split()[0]
+
+    def field_subtitle(self, value: dict, **kwargs) -> str:
+        return value["full_title"].split()[1]
 ```
 
-ModelCsv search methods named `column_<name>` and write down the return values.
+If MethodColumn then ModelCsv search methods named `column_<name>` and write down the return values.
 
 ### @as_column
 @as_column decorator returns a column which works like MethodColumn.
@@ -248,7 +267,7 @@ class BookCsv(ModelCsv):
 StaticColumn simply returns a static value.
 ```python
 class BookCsv(ModelCsv):
-    check = columns.StaticColumn(header='Check Box')
+    check = columns.StaticColumn(header='Check Box')  # always returns ''
     title = columns.AttributeColumn(header='Title')
     ...
     phone_number = columns.StaticColumn(header='Phone Number',
