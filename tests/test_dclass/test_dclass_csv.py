@@ -1,5 +1,5 @@
 import dataclasses
-from datetime import datetime, date, timezone
+from datetime import date, datetime, timezone
 from unittest import TestCase
 
 from django_csv.model_csv.csv.dclass import DataClassCsv
@@ -43,17 +43,19 @@ class DataClassCsvTest(TestCase):
     def test_write(self):
         data = [
             TestDataclass(
-                string=f"string{i}", number=i, boolean=bool(i % 2),
+                string=f"string{i}",
+                number=i,
+                boolean=bool(i % 2),
                 date_time=datetime(2023, 1, 1 + i, i + 1, tzinfo=timezone.utc),
-                date_=date(2023, 1, 1 + i)
-            ) for i in range(10)
+                date_=date(2023, 1, 1 + i),
+            )
+            for i in range(10)
         ]
 
         mcsv = TestCsv.for_write(instances=data)
         header, *body = mcsv.get_table(header=True)
         self.assertListEqual(
-            header,
-            ["string", "number", "boolean", "date_time", "date_"]
+            header, ["string", "number", "boolean", "date_time", "date_"]
         )
 
         for i, row in enumerate(body):
@@ -62,8 +64,12 @@ class DataClassCsvTest(TestCase):
                 [
                     f"string{i}",
                     f"{i}",
-                    TestCsv._meta.show_true if bool(i % 2) else TestCsv._meta.show_false,
-                    datetime(2023, 1, 1 + i, i + 1).strftime(TestCsv._meta.datetime_format),
-                    date(2023, 1, 1 + i).strftime(TestCsv._meta.date_format)
-                ]
+                    TestCsv._meta.show_true
+                    if bool(i % 2)
+                    else TestCsv._meta.show_false,
+                    datetime(2023, 1, 1 + i, i + 1).strftime(
+                        TestCsv._meta.datetime_format
+                    ),
+                    date(2023, 1, 1 + i).strftime(TestCsv._meta.date_format),
+                ],
             )

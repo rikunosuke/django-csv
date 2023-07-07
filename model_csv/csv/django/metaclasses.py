@@ -1,11 +1,14 @@
-from datetime import datetime, date
-from typing import Optional, Dict, List
+from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from django.db import models
 from django.utils import timezone
 
-from ..metaclasses import CsvOptions, BaseMetaclass
-from ...columns import BaseColumn, AttributeColumn
+from ...columns import AttributeColumn, BaseColumn
+from ..metaclasses import BaseMetaclass, CsvOptions
+
+if TYPE_CHECKING:
+    from .base import DjangoBasePart
 
 
 def get_type_from_model_field(field: models.Field):
@@ -29,38 +32,45 @@ def get_type_from_model_field(field: models.Field):
 
 class DjangoOptions(CsvOptions):
     tzinfo = timezone.get_current_timezone()
-    headers: Dict[str, str]
+    headers: dict[str, str]
 
     ALLOWED_META_ATTR = CsvOptions.ALLOWED_META_ATTR + (
-        'model',
-        'fields',
-        'headers',
-        'as_part',
+        "model",
+        "fields",
+        "headers",
+        "as_part",
     )
 
-    def __init__(self, meta: Optional[type], columns: Dict[str, BaseColumn],
-                 parts: List['Part']):
+    def __init__(
+        self,
+        meta: type | None,
+        columns: dict[str, BaseColumn],
+        parts: list["DjangoBasePart"],
+    ):
         if meta is None:
-            raise ValueError('class `Meta` is required in `DjangoCsv`')
+            raise ValueError("class `Meta` is required in `DjangoCsv`")
 
-        if not hasattr(meta, 'model'):
-            raise ValueError('`model` is required in class `Meta.`')
+        if not hasattr(meta, "model"):
+            raise ValueError("`model` is required in class `Meta.`")
 
         self.model = meta.model
 
-        if getattr(meta, 'as_part', False):
+        if getattr(meta, "as_part", False):
             # DjangoCsvOptions of Part Class only has own relation columns.
             super().__init__(meta, {}, parts)
             return
 
-        if not (field_names := getattr(meta, 'fields', None)):
+        if not (field_names := getattr(meta, "fields", None)):
             super().__init__(meta, columns, parts)
             return
 
         # auto create AttributeColumns for fields.
-        if field_names == '__all__':
-            fields = [f for f in self.model._meta.get_fields()
-                      if not f.auto_created and not f.is_relation]
+        if field_names == "__all__":
+            fields = [
+                f
+                for f in self.model._meta.get_fields()
+                if not f.auto_created and not f.is_relation
+            ]
         else:
             fields = [self.model._meta.get_field(name) for name in field_names]
 
@@ -68,10 +78,7 @@ class DjangoOptions(CsvOptions):
         column_names = columns.keys()
         fields = [f for f in fields if f.name not in column_names]
 
-        _kwargs = {
-            'columns': list(columns.values()),
-            'original': True
-        }
+        _kwargs = {"columns": list(columns.values()), "original": True}
 
         unassigned_r = self.get_unassigned(
             [
@@ -88,16 +95,15 @@ class DjangoOptions(CsvOptions):
         )
 
         for r, w, f in zip(unassigned_r, unassigned_w, fields):
-            header = meta.headers.get(f.name) if hasattr(meta,
-                                                         'headers') else None
+            header = meta.headers.get(f.name) if hasattr(meta, "headers") else None
             if not header:
-                header = getattr(f, 'verbose_name', f.name)
+                header = getattr(f, "verbose_name", f.name)
 
             to = get_type_from_model_field(f)
 
             columns[f.name] = AttributeColumn(
-                    r_index=r, w_index=w, header=header, to=to
-                )
+                r_index=r, w_index=w, header=header, to=to
+            )
 
         super().__init__(meta, columns, parts)
 

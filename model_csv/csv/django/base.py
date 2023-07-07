@@ -1,10 +1,15 @@
 import itertools
-from typing import Generator, Union, Callable
+from typing import Callable, Generator, Union
 
 from django.db import models
 
-from ..base import TableForRead, RowForWrite, BaseModelRowForRead, \
-    PartForReadMixin, BasePartMixin
+from ..base import (
+    BaseModelRowForRead,
+    BasePartMixin,
+    PartForReadMixin,
+    RowForWrite,
+    TableForRead,
+)
 
 
 class DjangoRowForRead(BaseModelRowForRead):
@@ -15,15 +20,16 @@ class DjangoRowForRead(BaseModelRowForRead):
         fields = self._meta.model._meta.get_fields()
 
         return {
-            k: v for k, v in values.items()
-            if k in [f.name for f in fields] or k.endswith('_id')
+            k: v
+            for k, v in values.items()
+            if k in [f.name for f in fields] or k.endswith("_id")
         }
 
 
 class DjangoCsvForRead(DjangoRowForRead, TableForRead):
     def get_instances(self, only_valid: bool = False) -> Generator:
         if not self.is_valid() and not only_valid:
-            raise ValueError('`is_valid()` method failed')
+            raise ValueError("`is_valid()` method failed")
 
         for row in self.cleaned_rows:
             if not row.is_valid:
@@ -44,7 +50,6 @@ class DjangoCsvForRead(DjangoRowForRead, TableForRead):
 
 
 class DjangoPartForRead(PartForReadMixin, DjangoRowForRead):
-
     def get_or_create_object(self, values: dict, **kwargs) -> models.Model:
         values = self.remove_extra_values(values)
         return self.model.objects.get_or_create(**values)[0]
@@ -59,24 +64,28 @@ class DjangoPartForRead(PartForReadMixin, DjangoRowForRead):
 
 
 class DjangoPartForWrite(RowForWrite):
-    def get_row_value(self, instance, is_relation: bool = False
-                      ) -> dict[int, str]:
+    def get_row_value(self, instance, is_relation: bool = False) -> dict[int, str]:
         # get foreign model.
         relation_instance = getattr(instance, self.related_name)
         if not isinstance(relation_instance, self.model):
-            raise ValueError(f'Wrong field name. `{self.related_name}` is not '
-                             f'{self.model.__class__.__name__}.')
+            raise ValueError(
+                f"Wrong field name. `{self.related_name}` is not "
+                f"{self.model.__class__.__name__}."
+            )
         return super().get_row_value(relation_instance, is_relation=is_relation)
 
 
 class DjangoBasePart(BasePartMixin, DjangoPartForWrite, DjangoPartForRead):
-    def __init__(self, related_name: str,
-                 callback: Union[str, Callable] = 'get_or_create_object',
-                 **kwargs):
+    def __init__(
+        self,
+        related_name: str,
+        callback: Union[str, Callable] = "get_or_create_object",
+        **kwargs,
+    ):
         if self._meta.model is None:
-            mcsv_class_name = self.__class__.__name__.split('Part', 1)[0]
+            mcsv_class_name = self.__class__.__name__.split("Part", 1)[0]
             raise ValueError(
-                f'django model is not defined in meta class of {mcsv_class_name}'
+                f"django model is not defined in meta class of {mcsv_class_name}"
             )
 
         self.model = self._meta.model

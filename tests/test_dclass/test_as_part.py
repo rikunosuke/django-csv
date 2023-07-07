@@ -25,7 +25,7 @@ class Book:
 
     @property
     def name(self) -> str:
-        return f'{self.title}  ({self.publisher.name})'
+        return f"{self.title}  ({self.publisher.name})"
 
 
 class PublisherCsv(DataClassCsv):
@@ -34,22 +34,24 @@ class PublisherCsv(DataClassCsv):
         fields = "__all__"
 
     def column_country(self, instance: Publisher, **kwargs) -> str:
-        return instance.headquarter.split(',')[1].strip()
+        return instance.headquarter.split(",")[1].strip()
 
     def column_city(self, instance: Publisher, **kwargs) -> str:
-        return instance.headquarter.split(',')[0].strip()
+        return instance.headquarter.split(",")[0].strip()
 
     def field_headquarter(self, values: dict, **kwargs) -> str:
-        city = values['city'].strip()
-        country = values['country'].strip()
-        return city + ', ' + country
+        city = values["city"].strip()
+        country = values["country"].strip()
+        return city + ", " + country
 
 
 class BookWithPublisherCsv(DataClassCsv):
     pbl = PublisherCsv.as_part(related_name="publisher")
 
     pbl_name = pbl.AttributeColumn(header="Publisher", attr_name="name")
-    pbl_country = pbl.MethodColumn(header="Country", method_suffix="country", value_name="country")
+    pbl_country = pbl.MethodColumn(
+        header="Country", method_suffix="country", value_name="country"
+    )
     pbl_city = pbl.MethodColumn(header="City", method_suffix="city", value_name="city")
 
     class Meta:
@@ -74,7 +76,7 @@ class PartTest(TestCase):
                 "Publisher",
                 "Country",
                 "City",
-            ]
+            ],
         )
 
     def test_dataclass_for_read(self):
@@ -98,7 +100,8 @@ class PartTest(TestCase):
             Publisher(
                 name=f"Publisher {i}",
                 headquarter=f"City {i}, Country {i}",
-            ) for i in range(10)
+            )
+            for i in range(10)
         ]
 
         books = [
@@ -108,7 +111,8 @@ class PartTest(TestCase):
                 publisher=publishers[i % 10],
                 is_on_sale=i % 2 == 0,
                 description=f"Description {i}",
-            ) for i in range(50)
+            )
+            for i in range(50)
         ]
 
         mcsv = BookWithPublisherCsv.for_write(instances=books)
@@ -126,5 +130,5 @@ class PartTest(TestCase):
                         f"Publisher {i % 10}",
                         f"Country {i % 10}",
                         f"City {i % 10}",
-                    ]
+                    ],
                 )

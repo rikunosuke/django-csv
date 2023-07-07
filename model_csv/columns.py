@@ -1,4 +1,4 @@
-from typing import Any, List, Optional, Callable
+from typing import Any, Callable, List, Optional
 
 
 class ColumnValidationError(Exception):
@@ -6,7 +6,6 @@ class ColumnValidationError(Exception):
 
 
 class WriteColumnMixin:
-
     def validate_for_write(self) -> None:
         if not self.write_value:
             return
@@ -14,12 +13,13 @@ class WriteColumnMixin:
         # Even if this column is StaticColumn, index for write is required.
         if self.w_index is None:
             raise ColumnValidationError(
-                'Set `w_index` or `index` to specify the target column. '
-                '`index` starts from 0. Set `write_value` = False and '
-                'CsvColumn does not write down any values.')
+                "Set `w_index` or `index` to specify the target column. "
+                "`index` starts from 0. Set `write_value` = False and "
+                "CsvColumn does not write down any values."
+            )
 
     def get_value_for_write(self, instance, **kwargs):
-        return ''
+        return ""
 
 
 class ReadColumnMixin:
@@ -31,9 +31,10 @@ class ReadColumnMixin:
 
         if self.r_index is None:
             raise ColumnValidationError(
-                'Set `r_index` or `index` to specify the target column. '
-                '`index` starts from 0. Set `read_value` = False then '
-                'CsvColumn does not read any values.')
+                "Set `r_index` or `index` to specify the target column. "
+                "`index` starts from 0. Set `read_value` = False then "
+                "CsvColumn does not read any values."
+            )
 
     def get_value_for_read(self, row: List[str], **kwargs):
         """
@@ -47,10 +48,19 @@ class BaseColumn(ReadColumnMixin, WriteColumnMixin):
     is_relation = False
     has_callback = False
 
-    def __init__(self, *, header: str = '', index: Optional[int] = None,
-                 r_index: Optional[int] = None, w_index: Optional[int] = None,
-                 read_value: bool = True, write_value: bool = True,
-                 value_name: str = '', method_suffix: str = '', to: Any = str):
+    def __init__(
+        self,
+        *,
+        header: str = "",
+        index: Optional[int] = None,
+        r_index: Optional[int] = None,
+        w_index: Optional[int] = None,
+        read_value: bool = True,
+        write_value: bool = True,
+        value_name: str = "",
+        method_suffix: str = "",
+        to: Any = str,
+    ):
         """
         header: csv column header. <WRITE>
         index: csv column index. Start from 0. <READ, WRITE>
@@ -65,14 +75,16 @@ class BaseColumn(ReadColumnMixin, WriteColumnMixin):
         self.__header = header
 
         if read_value:
-            self.__r_index = self.__original_r_index = index if (
-                    r_index is None) else r_index
+            self.__r_index = self.__original_r_index = (
+                index if (r_index is None) else r_index
+            )
         else:
             self.__r_index = self.__original_r_index = None
 
         if write_value:
-            self.__w_index = self.__original_w_index = index if (
-                    w_index is None) else w_index
+            self.__w_index = self.__original_w_index = (
+                index if (w_index is None) else w_index
+            )
         else:
             self.__w_index = self.__original_w_index = None
 
@@ -100,7 +112,7 @@ class BaseColumn(ReadColumnMixin, WriteColumnMixin):
         if self.read_value:
             self.__r_index = value
         else:
-            raise TypeError('Cannot set r_index.')
+            raise TypeError("Cannot set r_index.")
 
     @property
     def w_index(self):
@@ -111,7 +123,7 @@ class BaseColumn(ReadColumnMixin, WriteColumnMixin):
         if self.write_value:
             self.__w_index = value
         else:
-            raise TypeError('Cannot set w_index.')
+            raise TypeError("Cannot set w_index.")
 
     @property
     def header(self) -> str:
@@ -147,12 +159,17 @@ class MethodColumn(BaseColumn):
     """
 
 
-def as_column(*, header: str = '', index: Optional[int] = None,
-                       r_index: Optional[int] = None,
-                       w_index: Optional[int] = None,
-                       read_value: bool = True, write_value: bool = True,
-                       value_name: str = '', to: Any = str):
-
+def as_column(
+    *,
+    header: str = "",
+    index: Optional[int] = None,
+    r_index: Optional[int] = None,
+    w_index: Optional[int] = None,
+    read_value: bool = True,
+    write_value: bool = True,
+    value_name: str = "",
+    to: Any = str,
+):
     class DecoratorColumn(BaseColumn):
         has_callback = True
 
@@ -161,11 +178,17 @@ def as_column(*, header: str = '', index: Optional[int] = None,
             super().__init__(*args, **kwargs)
 
     def wrapper(function: Callable):
-        column = DecoratorColumn(callback=function, header=header, index=index,
-                                 r_index=r_index, w_index=w_index,
-                                 read_value=read_value,
-                                 write_value=write_value,
-                                 value_name=value_name, to=to)
+        column = DecoratorColumn(
+            callback=function,
+            header=header,
+            index=index,
+            r_index=r_index,
+            w_index=w_index,
+            read_value=read_value,
+            write_value=write_value,
+            value_name=value_name,
+            to=to,
+        )
 
         return column
 
@@ -181,7 +204,7 @@ class AttributeColumn(BaseColumn):
     write -> return attr value from an instance.
     """
 
-    def __init__(self, attr_name: str = '', **kwargs):
+    def __init__(self, attr_name: str = "", **kwargs):
         """
         attr_name: an attribute name of an instance. <WRITE>
         """
@@ -193,11 +216,11 @@ class AttributeColumn(BaseColumn):
         instance: An instance of class such as Django Model or Dataclass etc.
         attr_name: Field name of Django Model, or attribute name of an instance.
         """
-        if '__' in self.attr_name and hasattr(instance, self.attr_name):
+        if "__" in self.attr_name and hasattr(instance, self.attr_name):
             return getattr(instance, self.attr_name)
 
         val = instance
-        for attr_name in self.attr_name.split('__'):
+        for attr_name in self.attr_name.split("__"):
             val = getattr(val, attr_name)
 
         return val
@@ -238,9 +261,10 @@ class StaticColumn(BaseColumn):
     read -> return a value from row.
     write -> return a static value.
     """
+
     is_static = True
 
-    def __init__(self, *, static_value: Any = '', **kwargs):
+    def __init__(self, *, static_value: Any = "", **kwargs):
         """
         static_value: the value always returned.
         """
@@ -255,6 +279,7 @@ class BaseForeignColumn:
     """
     Column for ForeignKey model.
     """
+
     is_relation = True
 
     def __init__(self, related_name: str, **kwargs):
@@ -284,23 +309,24 @@ class ForeignMethodColumn(BaseForeignColumn, MethodColumn):
         super().validate_for_read()
         if not self._value_name:
             raise ColumnValidationError(
-                '`value_name` is required if `read_value` is True'
+                "`value_name` is required if `read_value` is True"
             )
 
     def validate_for_write(self) -> None:
         super().validate_for_read()
         if not self._method_suffix:
             raise ColumnValidationError(
-                '`method_suffix` is required if `write_value` is True'
+                "`method_suffix` is required if `write_value` is True"
             )
 
 
 class ForeignAttributeColumn(BaseForeignColumn, AttributeColumn):
-
     def __init__(self, attr_name: str, **kwargs):
-        if len(attr_name.split('__')) > 1:
-            raise ValueError(f'`{attr_name}` is invalid attr name.'
-                             'Don\'t include `__` in ForeignColumn attr_name.')
+        if len(attr_name.split("__")) > 1:
+            raise ValueError(
+                f"`{attr_name}` is invalid attr name."
+                "Don't include `__` in ForeignColumn attr_name."
+            )
 
         super().__init__(attr_name=attr_name, **kwargs)
 
@@ -314,5 +340,5 @@ class ForeignStaticColumn(BaseForeignColumn, StaticColumn):
         super().validate_for_read()
         if self.value_name == self.name:
             raise ColumnValidationError(
-                '`value_name` is required if `read_value` is True'
+                "`value_name` is required if `read_value` is True"
             )

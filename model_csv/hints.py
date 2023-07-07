@@ -1,6 +1,6 @@
 from typing import Union
 
-from . import writers, columns, readers
+from . import columns, readers, writers
 
 # Reader Class hints
 ExcelReader = Union[readers.XlsReader, readers.XlsxReader]

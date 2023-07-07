@@ -109,7 +109,7 @@ class BookDownloadCsv(generic.View):
             title = book.title.replace(N_WORD, '*', len(N_WORD))
             if book.is_restricted_under_18:
                 title = '[R18]' + title
-            
+
             price = f'${book.price or 0}'
             if book.published_at:
                 published_at = book.published_at.strftime('%Y-%m-%d')
@@ -117,8 +117,8 @@ class BookDownloadCsv(generic.View):
                 published_at = 'TBD'
                 title = '(TBD)' + title  # values are sometimes fixed at several points.
                 price += ' (Unsettled)'
-            
-            # Suppose each values need to be fixed depends on other values ... 
+
+            # Suppose each values need to be fixed depends on other values ...
             body += [
                 title,
                 'YES' if book.is_on_sale else 'NO',
@@ -128,7 +128,7 @@ class BookDownloadCsv(generic.View):
                 '',
                 '',
                 today,
-                # You have to check if order of values is valid ... 
+                # You have to check if order of values is valid ...
             ]
         return # create csv file and return response.
 ```
@@ -141,7 +141,7 @@ class BookCsv(ModelCsv):
     # MethodColumn is a column which returns a result of `column_*` method.
     title = columns.MethodColumn(header='Book Title')
 
-    # AttributeColumn is a column which returns an attribute of model. 
+    # AttributeColumn is a column which returns an attribute of model.
     is_on_sale = columns.AttributeColumn(header='Now On Sale', to=bool)
     is_restricted_under_18 = columns.AttributeColumn(header='R18', to=bool)
     price = columns.MethodColumn(header='Price')
@@ -202,7 +202,7 @@ Write down an attribute value
 ```python
 class BookCsv(ModelCsv):
     title = columns.AttributeColumn(header='Book Title', index=0)
-    
+
     class Meta:
         model = Book
 ```
@@ -214,7 +214,7 @@ class BookCsv(ModelCsv):
     title = columns.AttributeColumn(header='Book Title', index=0)
     official_title = columns.AttributeColumn(
         header='Book Title', attr_name='title', index=1)
-    
+
     class Meta:
         model = Book
 ```
@@ -245,7 +245,7 @@ class BookCsv(ModelCsv):
 ```
 
 ### StaticColumn
-StaticColumn simply returns a static value. 
+StaticColumn simply returns a static value.
 ```python
 class BookCsv(ModelCsv):
     check = columns.StaticColumn(header='Check Box')
@@ -267,7 +267,7 @@ class BookCsv(ModelCsv):
         # automatically assign indexes to columns
         auto_assign = True
 
-        # prohibit to use as read or write mode. 
+        # prohibit to use as read or write mode.
         read_mode = False  # raise Error if .for_read is called
         write_mode = True
 
@@ -281,7 +281,7 @@ class BookCsv(ModelCsv):
         # Column(to=bool) and auto_convert=True
         show_true = 'yes'
         show_false = 'no'
-        
+
         # understand values as bool if the value in list.
         # Column(to=bool) and auto_convert=True
         as_true = ['yes', 'Yes']
@@ -289,9 +289,9 @@ class BookCsv(ModelCsv):
 
         auto_convert = True
 
-        # The value ModelCsv write down if the value is None 
+        # The value ModelCsv write down if the value is None
         default_if_none = ''
-        
+
         # if indexes are not sequence, insert blank columns.
         insert_blank_column = True
 ```

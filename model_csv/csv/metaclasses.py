@@ -1,45 +1,44 @@
-from collections import OrderedDict
-from datetime import datetime, date, timezone
-from typing import Dict, Iterable, List, Any
-
 import copy
+from collections import OrderedDict
+from datetime import date, datetime, timezone
+from typing import Any, Dict, Iterable, List
 
-from .base import BasePartMixin
 from ..columns import BaseColumn
 from ..utils import render_row
+from .base import BasePartMixin
 
 
 class CsvOptions:
     read_mode: bool = True
     write_mode: bool = True
-    datetime_format: str = '%Y-%m-%d %H:%M:%S'
-    date_format: str = '%Y-%m-%d'
+    datetime_format: str = "%Y-%m-%d %H:%M:%S"
+    date_format: str = "%Y-%m-%d"
     tzinfo = timezone.utc
-    show_true: str = 'yes'
-    show_false: str = 'no'
-    as_true: Iterable = ['yes', 'Yes']
-    as_false: Iterable = ['no', 'No']
+    show_true: str = "yes"
+    show_false: str = "no"
+    as_true: Iterable = ["yes", "Yes"]
+    as_false: Iterable = ["no", "No"]
     auto_convert = True
     return_none_if_convert_fail = False
     auto_assign = False
     insert_blank_column: bool = True
-    default_if_none = ''
+    default_if_none = ""
 
     ALLOWED_META_ATTR = (
-        'read_mode',
-        'write_mode',
-        'datetime_format',
-        'date_format',
-        'tzinfo',
-        'show_true',
-        'show_false',
-        'as_true',
-        'as_false',
-        'auto_convert',
-        'return_none_if_convert_fail',
-        'auto_assign',
-        'insert_blank_column',
-        'default_if_none',
+        "read_mode",
+        "write_mode",
+        "datetime_format",
+        "date_format",
+        "tzinfo",
+        "show_true",
+        "show_false",
+        "as_true",
+        "as_false",
+        "auto_convert",
+        "return_none_if_convert_fail",
+        "auto_assign",
+        "insert_blank_column",
+        "default_if_none",
     )
 
     class UnknownAttribute(Exception):
@@ -48,27 +47,27 @@ class CsvOptions:
     class UnknownColumn(Exception):
         pass
 
-    def __init__(self, meta, columns: Dict[str, BaseColumn],
-                 parts: List[BasePartMixin]):
-
+    def __init__(
+        self, meta, columns: Dict[str, BaseColumn], parts: List[BasePartMixin]
+    ):
         self.parts = parts
         meta = copy.deepcopy(meta)
 
         # validate meta attrs and set attr to Options.
         for attr_name in dir(meta):
-            if attr_name.startswith('_'):
+            if attr_name.startswith("_"):
                 continue
 
             if attr_name not in self.ALLOWED_META_ATTR:
                 raise self.UnknownAttribute(
-                    f'Unknown Attribute is defined. `{attr_name}`')
+                    f"Unknown Attribute is defined. `{attr_name}`"
+                )
 
             val = getattr(meta, attr_name)
             # easy validation for `as_true` and `as_false`
-            if attr_name in ('as_true', 'as_false'):
+            if attr_name in ("as_true", "as_false"):
                 if isinstance(val, str):
-                    raise TypeError(
-                        f'`{attr_name}` must be list, tuple or set.')
+                    raise TypeError(f"`{attr_name}` must be list, tuple or set.")
 
             setattr(self, attr_name, val)
 
@@ -88,7 +87,7 @@ class CsvOptions:
             return value
 
         if to == int:
-            if value in (self.default_if_none, ''):
+            if value in (self.default_if_none, ""):
                 return None
             try:
                 return int(value)
@@ -99,7 +98,7 @@ class CsvOptions:
                     raise
 
         if to == float:
-            if value in (self.default_if_none, ''):
+            if value in (self.default_if_none, ""):
                 return None
             try:
                 return float(value)
@@ -120,7 +119,8 @@ class CsvOptions:
                     return None
                 else:
                     raise ValueError(
-                        f'`{value}` is not in both `as_true` and `as_false`')
+                        f"`{value}` is not in both `as_true` and `as_false`"
+                    )
 
         if to in (date, datetime):
             try:
@@ -155,7 +155,7 @@ class CsvOptions:
 
         if to == datetime:
             if not isinstance(value, datetime):
-                raise ValueError(f'`{value}` is not a datetime instance')
+                raise ValueError(f"`{value}` is not a datetime instance")
 
             if self.tzinfo:
                 value = value.astimezone(self.tzinfo)
@@ -164,18 +164,25 @@ class CsvOptions:
 
         elif to == date:
             if not isinstance(value, date):
-                raise ValueError(f'`{value}` is not a date instance')
+                raise ValueError(f"`{value}` is not a date instance")
             return value.strftime(self.date_format)
 
         return str(value)
 
     @staticmethod
-    def filter_columns(*, columns: List[BaseColumn], r_index: bool = None,
-                       w_index: bool = None, for_write: bool = None,
-                       for_read: bool = None, read_value: bool = None,
-                       write_value: bool = None, is_static: bool = None,
-                       is_relation: bool = None, original: bool = False
-                       ) -> list:
+    def filter_columns(
+        *,
+        columns: List[BaseColumn],
+        r_index: bool = None,
+        w_index: bool = None,
+        for_write: bool = None,
+        for_read: bool = None,
+        read_value: bool = None,
+        write_value: bool = None,
+        is_static: bool = None,
+        is_relation: bool = None,
+        original: bool = False,
+    ) -> list:
         """
         filter passed columns and return them if they match conditions.
         r_index: if True, return columns having `r_index.`
@@ -190,51 +197,61 @@ class CsvOptions:
         if is_relation is not None:
             columns = [col for col in columns if col.is_relation == is_relation]
 
-        other_params = not all(map(
-            lambda x: x is None,
-            [r_index, is_static, read_value, write_value]))
+        other_params = not all(
+            map(lambda x: x is None, [r_index, is_static, read_value, write_value])
+        )
 
         if for_read is not None:
             if other_params or original:
-                raise TypeError('`for_write` with other params not supported')
+                raise TypeError("`for_write` with other params not supported")
 
             if for_read:
                 columns = [
-                    col for col in columns
-                    if col.is_static or col.r_index is not None
+                    col for col in columns if col.is_static or col.r_index is not None
                 ]
                 read_value = True
             else:
                 columns = [
-                    col for col in columns
-                    if not col.read_value or
-                    (not col.is_static and col.r_index is None)
+                    col
+                    for col in columns
+                    if not col.read_value or (not col.is_static and col.r_index is None)
                 ]
 
         if for_write is not None:
             if other_params or original:
-                raise TypeError('`for_write` with other params not supported')
+                raise TypeError("`for_write` with other params not supported")
 
             if for_write:
                 w_index = True
                 write_value = True
             else:
                 columns = [
-                    col for col in columns
-                    if col.w_index is None or not col.write_value
+                    col for col in columns if col.w_index is None or not col.write_value
                 ]
 
         if r_index is not None:
-            columns = [col for col in columns if any([
-                isinstance(col.get_r_index(original), int) and r_index,
-                col.get_r_index(original) is None and not r_index,
-            ])]
+            columns = [
+                col
+                for col in columns
+                if any(
+                    [
+                        isinstance(col.get_r_index(original), int) and r_index,
+                        col.get_r_index(original) is None and not r_index,
+                    ]
+                )
+            ]
 
         if w_index is not None:
-            columns = [col for col in columns if any([
-                isinstance(col.get_w_index(original), int) and w_index,
-                col.get_w_index(original) is None and not w_index,
-            ])]
+            columns = [
+                col
+                for col in columns
+                if any(
+                    [
+                        isinstance(col.get_w_index(original), int) and w_index,
+                        col.get_w_index(original) is None and not w_index,
+                    ]
+                )
+            ]
 
         if read_value is not None:
             columns = [col for col in columns if col.read_value == read_value]
@@ -259,34 +276,47 @@ class CsvOptions:
 
             i += 1
 
-    def get_columns(self, *, r_index: bool = None, w_index: bool = None,
-                    for_write: bool = None, for_read: bool = None,
-                    read_value: bool = None, write_value: bool = None,
-                    is_static: bool = None, is_relation: bool = None,
-                    original: bool = False):
-
+    def get_columns(
+        self,
+        *,
+        r_index: bool = None,
+        w_index: bool = None,
+        for_write: bool = None,
+        for_read: bool = None,
+        read_value: bool = None,
+        write_value: bool = None,
+        is_static: bool = None,
+        is_relation: bool = None,
+        original: bool = False,
+    ):
         return self.filter_columns(
-            r_index=r_index, w_index=w_index, for_read=for_read,
-            for_write=for_write, read_value=read_value, write_value=write_value,
-            is_static=is_static, is_relation=is_relation, original=original,
-            columns=self.columns)
+            r_index=r_index,
+            w_index=w_index,
+            for_read=for_read,
+            for_write=for_write,
+            read_value=read_value,
+            write_value=write_value,
+            is_static=is_static,
+            is_relation=is_relation,
+            original=original,
+            columns=self.columns,
+        )
 
     def get_column(self, name: str) -> BaseColumn:
         for col in self.columns:
             if col.name == name:
                 return col
         else:
-            raise self.UnknownColumn(f'UnknownColumn `{name}`')
+            raise self.UnknownColumn(f"UnknownColumn `{name}`")
 
     def get_header(self, name: str) -> str:
         return self.get_column(name).header
 
-    def get_headers(self, for_read: bool = False, for_write: bool = False
-                    ) -> list[str]:
+    def get_headers(self, for_read: bool = False, for_write: bool = False) -> list[str]:
         if for_read == for_write:
-            raise ValueError('choose read mode or write mode')
+            raise ValueError("choose read mode or write mode")
 
-        attr_names = 'get_r_index' if for_read else 'get_w_index'
+        attr_names = "get_r_index" if for_read else "get_w_index"
         cols = {
             getattr(col, attr_names)(): col.header
             for col in self.get_columns(
@@ -300,25 +330,29 @@ class CsvOptions:
         Set r and w indexes to the columns not having original indexes.
         If this method calls, all indexes assigned automatically are overwritten.
         """
-        for i, col in zip(self.get_unassigned(self.get_r_indexes(True)),
-                          self.get_columns(
-                              r_index=False, original=True, read_value=True)):
+        for i, col in zip(
+            self.get_unassigned(self.get_r_indexes(True)),
+            self.get_columns(r_index=False, original=True, read_value=True),
+        ):
             col.r_index = i
 
-        for i, col in zip(self.get_unassigned(self.get_w_indexes(True)),
-                          self.get_columns(
-                              w_index=False, original=True, write_value=True)):
+        for i, col in zip(
+            self.get_unassigned(self.get_w_indexes(True)),
+            self.get_columns(w_index=False, original=True, write_value=True),
+        ):
             col.w_index = i
 
     def get_r_indexes(self, original: bool = False) -> list:
-
-        return [col.get_r_index(original) for col in self.get_columns(
-            r_index=True, original=original)]
+        return [
+            col.get_r_index(original)
+            for col in self.get_columns(r_index=True, original=original)
+        ]
 
     def get_w_indexes(self, original: bool = False) -> list:
-
-        return [col.get_w_index(original) for col in self.get_columns(
-            w_index=True, original=original)]
+        return [
+            col.get_w_index(original)
+            for col in self.get_columns(w_index=True, original=original)
+        ]
 
 
 class BaseMetaclass(type):
@@ -331,9 +365,9 @@ class BaseMetaclass(type):
             return super().__new__(mcs, name, bases, attrs)
 
         # meta クラスを対応
-        if '_meta' not in attrs:
-            attrs['_meta'] = mcs.option_class(
-                meta=attrs.get('Meta'),
+        if "_meta" not in attrs:
+            attrs["_meta"] = mcs.option_class(
+                meta=attrs.get("Meta"),
                 columns=mcs.__concat_columns(bases=bases, attrs=attrs),
                 parts=mcs.__concat_parts(bases=bases, attrs=attrs),
             )
@@ -343,25 +377,23 @@ class BaseMetaclass(type):
     @classmethod
     def __concat_columns(mcs, bases: tuple, attrs: dict) -> dict:
         col_dict = OrderedDict(
-            (attr_name, attr) for attr_name, attr in attrs.items()
+            (attr_name, attr)
+            for attr_name, attr in attrs.items()
             if isinstance(attr, BaseColumn)
         )
 
         for base in reversed(bases):
-            if hasattr(base, '_meta'):
-                col_dict.update({
-                    col.name: col for col in base._meta.get_columns()})
+            if hasattr(base, "_meta"):
+                col_dict.update({col.name: col for col in base._meta.get_columns()})
 
         return col_dict
 
     @classmethod
     def __concat_parts(mcs, bases: tuple, attrs: dict) -> list:
-        parts = [
-            attr for attr in attrs.values() if isinstance(attr, BasePartMixin)
-        ]
+        parts = [attr for attr in attrs.values() if isinstance(attr, BasePartMixin)]
 
         for base in bases:
-            if hasattr(base, '_meta'):
+            if hasattr(base, "_meta"):
                 parts.extend([part for part in base._meta.parts])
 
         return parts

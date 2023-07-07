@@ -1,21 +1,26 @@
 import csv
 import io
-
 import urllib
-from django.http import HttpResponse
 from typing import Optional
+
+from django.http import HttpResponse
 
 
 class Writer:
-    content_type = 'text/csv'
-    extension = 'csv'
+    content_type = "text/csv"
+    extension = "csv"
 
-    def __init__(self, filename: str, encoding: str = 'utf-8') -> None:
-        self.filename = filename if filename.endswith(
-            self.extension) else f'{filename}.{self.extension}'
-        if len(self.filename.split('.')) != 2:
-            raise ValueError(f'{filename} may have unexpected extension. '
-                             f'`.{self.extension}` is expected.')
+    def __init__(self, filename: str, encoding: str = "utf-8") -> None:
+        self.filename = (
+            filename
+            if filename.endswith(self.extension)
+            else f"{filename}.{self.extension}"
+        )
+        if len(self.filename.split(".")) != 2:
+            raise ValueError(
+                f"{filename} may have unexpected extension. "
+                f"`.{self.extension}` is expected."
+            )
         self.encoding = encoding
 
     def make_response(self, **kwargs) -> HttpResponse:
@@ -27,7 +32,7 @@ class Writer:
     def _response(self, **kwargs) -> HttpResponse:
         res = HttpResponse(content_type=self.content_type)
         filename = urllib.parse.quote(self.filename)
-        res['Content-Disposition'] = f'attachment;filename="{filename}"'
+        res["Content-Disposition"] = f'attachment;filename="{filename}"'
         return res
 
 
@@ -49,39 +54,40 @@ class CsvMixin:
             w = csv.writer(sio, delimiter=self.delimiter)
             w.writerows(self.table)
             res = self._response()
-            res.write(sio.getvalue().encode(self.encoding, errors='ignore'))
+            res.write(sio.getvalue().encode(self.encoding, errors="ignore"))
 
         return res
 
 
 class CsvWriter(CsvMixin, Writer):
-    delimiter = ','
-    extension = 'csv'
-    content_type = 'text/csv'
+    delimiter = ","
+    extension = "csv"
+    content_type = "text/csv"
 
 
 class TsvWriter(CsvMixin, Writer):
-    delimiter = '\t'
-    extension = 'tsv'
-    content_type = 'text/tsv'
+    delimiter = "\t"
+    extension = "tsv"
+    content_type = "text/tsv"
 
 
 class ExcelMixin:
-    content_type = 'application/vnd.ms-excel'
+    content_type = "application/vnd.ms-excel"
 
-    def __init__(self, *args, default_sheet_name: str = 'sheet', **kwargs):
+    def __init__(self, *args, default_sheet_name: str = "sheet", **kwargs):
         self.default_sheet_name = default_sheet_name
         super().__init__(*args, **kwargs)
 
     def _get_next_sheet_name(self) -> str:
-        return f'{self.default_sheet_name} {len(self.get_sheet_names())}'
+        return f"{self.default_sheet_name} {len(self.get_sheet_names())}"
 
 
 class XlsWriter(ExcelMixin, Writer):
-    extension = 'xls'
+    extension = "xls"
 
     def __init__(self, *args, **kwargs):
         import xlwt
+
         self.wb = xlwt.Workbook()
         self.sheet_names = []
         super().__init__(*args, **kwargs)
@@ -109,10 +115,11 @@ class XlsWriter(ExcelMixin, Writer):
 
 
 class XlsxWriter(ExcelMixin, Writer):
-    extension = 'xlsx'
+    extension = "xlsx"
 
     def __init__(self, *args, **kwargs):
         from openpyxl import Workbook
+
         self.wb = Workbook()
         # delete default sheet
         self.wb.remove(self.wb.active)
