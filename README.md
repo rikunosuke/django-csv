@@ -45,18 +45,38 @@ class BookCsv(DataClassCsv):
         fields = '__all__'
 ```
 
-## 2.1 Create a 2d list of instances if you want to create csv file.
+## 2.1 Create a 2d list of str from instance to create csv file.
 ```python3
 >>> mcsv = BookCsv.for_write(instances=book_instances)
 >>> mcsv.get_table(header=True)
 [['title', 'price', 'is_on_sale', 'description'], ['Book title', '540', 'YES', 'description'], ...]
 
-# if django model
+# only DjangoCsv
 # choose file type. (CsvWriter, TsvWriter, XlsxWriter)
 >>> from model_csv.writers import CsvWriter
 >>> writer = CsvWriter(file_name='book')
-# only DjangoCsv classes can make a django response.
 >>> mcsv.get_response(writer=writer)
+```
+
+## 2.2 Create instances from csv file.
+
+```python3
+>>> from model_csv.csv.reader import CsvReader
+>>> reader = CsvReader(file=file, table_starts_from=1)
+>>> headers, *table = reader.get_table(header=True)
+>>> headers
+['title', 'price', 'is_on_sale', 'description']
+>>> if headers != BookCsv._meta.get_headers():
+>>>     raise ValueError('Invalid header.')
+
+>>> mcsv = BookCsv.for_read(table=table)
+>>> if not mcsv.is_valid():
+>>>     raise ValueError('Invalid table values.')
+
+>>> mcsv.get_instances()
+[<Book: Book object (1)>, <Book: Book object (2)>, ...]
+# Only DjangoCsv
+>>> mcsv.bulk_create()
 ```
 
 ### Django - Download and Upload View Example.
@@ -134,7 +154,7 @@ class BookDownloadCsv(generic.View):
                 '',
                 '',
                 today,
-                # You have to check if order of values is valid ...
+                # You have to check if orders of values and headers are same ...
             ]
         return # create csv file and return response.
 ```
@@ -142,33 +162,29 @@ class BookDownloadCsv(generic.View):
 Cool Solution with model-csv
 
 ```python
-from model_csv import ModelCsv, columns
+from model_csv import columns
+from model_csv.csv.django import DjangoCsv
 
-class BookCsv(ModelCsv):
-    # MethodColumn is a column which returns a result of `column_*` method.
+class BookCsv(DjangoCsv):
     title = columns.MethodColumn(header='Book Title')
 
-    # AttributeColumn is a column which returns an attribute of model.
     is_on_sale = columns.AttributeColumn(header='Now On Sale', to=bool)
     is_restricted_under_18 = columns.AttributeColumn(header='R18', to=bool)
     price = columns.MethodColumn(header='Price')
     published_at = columns.AttributeColumn(header='Publish Date')
 
-    # StaticColumn is a column which always returns `static_value.`
     memo = columns.StaticColumn(header='Memo', static_value='')
     description = columns.StaticColumn(header='Description')
     csv_output_date = columns.StaticColumn(header='Csv Output Date')
-    # even if columns over 20, it's not so difficult to manage order.
+    # even if columns over 20, it's not so difficult to manage an order of columns.
 
     class Meta:
         model = Book
-        read_mode = False  # if False, then this class cannot call Csv.for_read()
-        # if auto_assign is true, column indexed are automatically assigned.
-        # Assigned indexes are equal to the declaration order of columns.
+        read_mode = False
         auto_assign = True
 
     def column_title(self, instance: Book, **kwargs) -> str:
-        # Special methods with `column_` prefix are called when write down to a csv file.
+        # Special methods having prefix `column_` are called when write down to a csv file.
         title = instance.title.replace(N_WORD, '*' * len(N_WORD))
         if instance.is_restricted_under_18:
             title = '[R18] ' + title
@@ -189,13 +205,11 @@ class BookCsv(ModelCsv):
 
 
 class BookDownloadView(generic.View):
-    # you can keep your view simpler.
+    # It's easy to keep view logic simple.
     def post(self, **kwargs):
-        # call as write mode.
         mcsv = BookCsv.for_write(instances=Book.objects.all())
         # you can insert values after construct ModelCsv.
         mcsv.set_static_column('csv_output_date', timezone.now().date())
-        # define filename and file type. Other choices are TsvWriter, ExcelWriter ...
         writer = CsvWriter(file_name='book.csv')
         return mcsv.get_response(writer=writer)
 ```
