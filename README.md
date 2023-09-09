@@ -26,7 +26,6 @@ class BookCsv(DjangoCsv):
 ```
 
 ### dataclasses.dataclass
-
 ```python3
 @dataclasses.dataclass
 class Book:
@@ -45,11 +44,14 @@ class BookCsv(DataClassCsv):
         fields = '__all__'
 ```
 
-## 2.1 Create a 2d list of str from instance to create csv file.
+## 2.1 Create a 2d list of str from instances to create a csv file.
 ```python3
 >>> mcsv = BookCsv.for_write(instances=book_instances)
 >>> mcsv.get_table(header=True)
 [['title', 'price', 'is_on_sale', 'description'], ['Book title', '540', 'YES', 'description'], ...]
+>>> with Path("book.csv").open("w") as f:
+        writer = csv.write(f)
+        write.writerows(mcv.get_table())
 
 # only DjangoCsv
 # choose file type. (CsvWriter, TsvWriter, XlsxWriter)
@@ -61,7 +63,7 @@ class BookCsv(DataClassCsv):
 ## 2.2 Create instances from csv file.
 
 ```python3
->>> from model_csv.csv.reader import CsvReader
+>>> from model_csv.readers import CsvReader
 >>> reader = CsvReader(file=file, table_starts_from=1)
 >>> headers, *table = reader.get_table(header=True)
 >>> headers
@@ -132,7 +134,7 @@ class BookDownloadCsv(generic.View):
         body = [header]
         today = timezone.now().date()
         for book in Book.objects.all():
-            title = book.title.replace(N_WORD, '*', len(N_WORD))
+            title = book.title.replace(F_WORD, '*', len(F_WORD))
             if book.is_restricted_under_18:
                 title = '[R18]' + title
 
@@ -185,7 +187,7 @@ class BookCsv(DjangoCsv):
 
     def column_title(self, instance: Book, **kwargs) -> str:
         # Special methods having prefix `column_` are called when write down to a csv file.
-        title = instance.title.replace(N_WORD, '*' * len(N_WORD))
+        title = instance.title.replace(F_WORD, '*' * len(F_WORD))
         if instance.is_restricted_under_18:
             title = '[R18] ' + title
         if instance.is_restricted_under_18:
@@ -218,15 +220,22 @@ class BookDownloadView(generic.View):
 
 There are 3 types of columns and 1 decorator.
 
-All these columns work in a same way when read values from a csv file.
+All these columns work in a same way when column instances read values from a csv file.
 
 (just return a value from row by using an index)
 
-They work differently when write down values to a csv file.
+They work differently when column instances write down values to a csv file.
 
 ### AttributeColumn
 Write down an attribute value
 ```python
+class BookCsv(DataClassCsv):
+    title = columns.AttributeColumn(header='Book Title', index=0)
+
+    class Meta:
+        dclass = Book
+
+# or
 class BookCsv(DjangoCsv):
     title = columns.AttributeColumn(header='Book Title', index=0)
 
@@ -237,7 +246,7 @@ Then, `AttributeColumn` returns `book.title` when create csv file.
 
 If set `attr_name` then `AttributeColumn` changes an attribute it refers to.
 ```python
-class BookCsv(ModelCsv):
+class BookCsv(DjangoCsv):
     title = columns.AttributeColumn(header='Book Title', index=0)
     official_title = columns.AttributeColumn(
         header='Official Title', attr_name='title', index=1)  # same as title
@@ -249,7 +258,7 @@ class BookCsv(ModelCsv):
 ### MethodColumn
 Write down a value which is returned by a method
 ```python
-class BookCsv(ModelCsv):
+class BookCsv(DjangoCsv):
     full_title = columns.MethodColumn(header='Title', index=0)
 
     class Meta:
@@ -259,13 +268,14 @@ class BookCsv(ModelCsv):
         return f'{instance.title} {instance.subtitle}'
 
     def field_title(self, value: dict, **kwargs) -> str:
+        # value of index 0 is stored with key "full_title".
         return value["full_title"].split()[0]
 
     def field_subtitle(self, value: dict, **kwargs) -> str:
         return value["full_title"].split()[1]
 ```
 
-If MethodColumn then ModelCsv search methods named `column_<name>` and write down the return values.
+If MethodColumn exists then ModelCsv search methods named `column_<name>` and write down the return values.
 
 ### @as_column
 @as_column decorator returns a column which works like MethodColumn.
@@ -294,17 +304,23 @@ class BookCsv(ModelCsv):
 ## Meta class of ModelCsv
 
 ```python
-class BookCsv(ModelCsv):
+class BookCsv(DjangoCsv):
     class Meta:
-        model = Book  # django model
+        model = Book  # django model only DjangoCsv
+        dclass = Book  # dataclass only DataClassCsv
+
         # automatically assign indexes to columns
+        # so you don't have to write `index=0` for each column.
         auto_assign = True
+
+        # automatically convert values to the type of column if Column(to=<type>)
+        auto_convert = True
 
         # prohibit to use as read or write mode.
         read_mode = False  # raise Error if .for_read is called
         write_mode = True
 
-        # Convert datetime to str or str to datetime.
+        # Convert datetime to str / str to datetime.
         # Column(to=datetime) and auto_convert=True
         datetime_format = '%Y-%m-%d %H:%M:%S'
         date_format = '%Y-%m-%d'
@@ -312,15 +328,13 @@ class BookCsv(ModelCsv):
 
         # convert bool to str.
         # Column(to=bool) and auto_convert=True
-        show_true = 'yes'
+        show_true = 'yes'  # if instance.value is true then write down 'yes'
         show_false = 'no'
 
         # understand values as bool if the value in list.
         # Column(to=bool) and auto_convert=True
         as_true = ['yes', 'Yes']
         as_false = ['no', 'No']
-
-        auto_convert = True
 
         # The value ModelCsv write down if the value is None
         default_if_none = ''
